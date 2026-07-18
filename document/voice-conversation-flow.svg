@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1260" viewBox="0 0 1600 1260" role="img" aria-labelledby="title desc">
+  <title id="title">Voice conversation sequence</title>
+  <desc id="desc">The browser controls turn-taking and submits one cleaned final transcript to the server. The server evaluates the turn with the text model and returns an approved response. Optional Realtime audio transports speech but does not replace server-side source grounding or answer evaluation.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L0,6 L9,3 z" fill="#2a5f93"/></marker>
+    <marker id="arrowMuted" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L0,6 L9,3 z" fill="#5f7890"/></marker>
+    <style>
+      .participant { fill:#eaf2fb; stroke:#2a5f93; stroke-width:2; }
+      .external { fill:#f6f9fc; stroke:#5f7890; stroke-width:2; }
+      .life { stroke:#8da5ba; stroke-width:1.5; stroke-dasharray:6 5; }
+      .msg { stroke:#2a5f93; stroke-width:2; fill:none; marker-end:url(#arrow); }
+      .msgback { stroke:#5f7890; stroke-width:2; fill:none; stroke-dasharray:7 5; marker-end:url(#arrowMuted); }
+      .label { font:600 15px Arial, sans-serif; fill:#163d69; text-anchor:middle; }
+      .small { font:13px Arial, sans-serif; fill:#263746; text-anchor:middle; }
+      .note { font:13px Arial, sans-serif; fill:#263746; }
+      .section { font:600 14px Arial, sans-serif; fill:#163d69; }
+    </style>
+  </defs>
+  <rect width="1600" height="1260" fill="white"/>
+  <g>
+    <rect class="participant" x="20" y="30" width="180" height="70" rx="10"/><text class="label" x="110" y="60">Learner</text><text class="small" x="110" y="82">voice or text</text>
+    <rect class="participant" x="300" y="30" width="230" height="70" rx="10"/><text class="label" x="415" y="60">Browser voice</text><text class="small" x="415" y="82">app.js and recorder</text>
+    <rect class="participant" x="650" y="30" width="230" height="70" rx="10"/><text class="label" x="765" y="60">Server API</text><text class="small" x="765" y="82">orchestrator and state</text>
+    <rect class="participant" x="1000" y="30" width="230" height="70" rx="10"/><text class="label" x="1115" y="60">Text coach</text><text class="small" x="1115" y="82">gateway and model</text>
+    <rect class="external" x="1350" y="30" width="230" height="70" rx="10"/><text class="label" x="1465" y="60">Optional Realtime</text><text class="small" x="1465" y="82">audio transport</text>
+  </g>
+  <path class="life" d="M110 100 V1210"/><path class="life" d="M415 100 V1210"/><path class="life" d="M765 100 V1210"/><path class="life" d="M1115 100 V1210"/><path class="life" d="M1465 100 V1210"/>
+
+  <text class="section" x="40" y="135">1. Start and prepare</text>
+  <path class="msg" d="M110 165 H415"/><text class="note" x="135" y="157">Start or resume voice conversation</text>
+  <path class="msg" d="M415 205 H765"/><text class="note" x="445" y="197">POST /api/voice/sessions/:id/start</text>
+  <path class="msgback" d="M765 245 H415"/><text class="note" x="525" y="237">Current question already prepared by initialQuestion/nextQuestion</text>
+  <path class="msg" d="M415 285 H415"/><text class="note" x="435" y="277">Request microphone; speak question with browser speech</text>
+
+  <text class="section" x="40" y="345">2. Enforce turn-taking</text>
+  <path class="msg" d="M415 375 H415"/><text class="note" x="435" y="367">AI speech: recognition disabled to prevent echo capture</text>
+  <path class="msgback" d="M415 425 H110"/><text class="note" x="135" y="417">AI question ends; learner may answer</text>
+  <path class="msg" d="M110 465 H415"/><text class="note" x="135" y="457">Speak answer or ask a related question</text>
+  <path class="msg" d="M415 505 H1465"/><text class="note" x="760" y="497">Optional Realtime input/VAD; browser fallback uses SpeechRecognition</text>
+  <path class="msg" d="M110 545 H415"/><text class="note" x="135" y="537">Interrupt request takes the floor</text>
+  <path class="msg" d="M415 585 H1465"/><text class="note" x="760" y="577">response.cancel and audio buffer clear when Realtime is active</text>
+
+  <text class="section" x="40" y="645">3. Finalize one transcript and evaluate it</text>
+  <path class="msg" d="M415 675 H415"/><text class="note" x="435" y="667">Keep finalized segments; ignore interim hypotheses</text>
+  <path class="msg" d="M415 715 H415"/><text class="note" x="435" y="707">Normalize fillers and repeated stutters</text>
+  <path class="msg" d="M415 755 H415"/><text class="note" x="435" y="747">Five seconds of silence schedules auto-submit</text>
+  <path class="msg" d="M415 795 H765"/><text class="note" x="445" y="787">POST /api/voice/sessions/:id/turns with one cleaned transcript</text>
+  <path class="msg" d="M765 835 H1115"/><text class="note" x="795" y="827">handleVoiceTurn -> answerVoiceTurn</text>
+  <path class="msg" d="M1115 875 H1115"/><text class="note" x="1135" y="867">Source: retrieveSourceChunks + composeBlendedAnswer</text>
+  <path class="msg" d="M1115 915 H1115"/><text class="note" x="1135" y="907">Practice: evaluateAnswer; general: generalAnswer</text>
+  <path class="msgback" d="M1115 955 H765"/><text class="note" x="795" y="947">Structured answer, citations, assessment, follow-up</text>
+  <path class="msgback" d="M765 995 H415"/><text class="note" x="445" y="987">Persist turn; update agenda and session state</text>
+
+  <text class="section" x="40" y="1055">4. Speak the approved response</text>
+  <path class="msgback" d="M415 1085 H110"/><text class="note" x="135" y="1077">Display captions, status, transcript, and history</text>
+  <path class="msg" d="M415 1125 H1465"/><text class="note" x="760" y="1117">Optional response.create for approved speech; otherwise browser SpeechSynthesis</text>
+  <path class="msgback" d="M1465 1165 H415"/><text class="note" x="1120" y="1157">Audio ends; browser resumes listening for the next turn</text>
+
+  <text class="note" x="800" y="1210">Realtime audio never bypasses server-side grounding, answer evaluation, budgets, or session isolation.</text>
+</svg>

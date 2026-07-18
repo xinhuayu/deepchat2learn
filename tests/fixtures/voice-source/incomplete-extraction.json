@@ -1,0 +1,16 @@
+{
+  "source": {
+    "id": "incomplete-1",
+    "name": "table-scan.txt",
+    "warnings": [
+      "Table text may be incomplete."
+    ],
+    "segments": [
+      {
+        "page": 7,
+        "section": "Appendix",
+        "text": "The appendix summarizes the table, but some values are missing from extraction."
+      }
+    ]
+  }
+}
