@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="public/brand-logo.png" alt="deepchat2learn logo" width="280">
+</p>
+
 # deepchat2learn - Academic Learning MVP
 
 deepchat2learn is a browser-based academic learning environment for deep voice conversations, practicing explanations, and exploring supplied source material. The dependency-free local setup includes a deterministic academic conversation coach and can optionally use a server-side text model, live AI voice, and SQLite persistence.
