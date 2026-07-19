@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
+  <title id="title">AI agent runtime decision loop</title>
+  <desc id="desc">At runtime the agent receives an input, classifies intent, checks bounded context, chooses an answer, retrieval, tool, clarification, or escalation, validates the result, responds, and persists the turn before continuing.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="4" orient="auto"><path d="M0,0 L0,8 L10,4 z" fill="#2a5f93"/></marker>
+    <marker id="arrowAmber" markerWidth="12" markerHeight="12" refX="10" refY="4" orient="auto"><path d="M0,0 L0,8 L10,4 z" fill="#c9822d"/></marker>
+    <style>
+      .bg { fill:#ffffff; }
+      .node { fill:#eaf2fb; stroke:#2a5f93; stroke-width:2; }
+      .decision { fill:#fff5e8; stroke:#c9822d; stroke-width:2; }
+      .result { fill:#dceefa; stroke:#174f80; stroke-width:3; }
+      .line { stroke:#2a5f93; stroke-width:3; fill:none; marker-end:url(#arrow); }
+      .branch { stroke:#c9822d; stroke-width:2.6; fill:none; marker-end:url(#arrowAmber); }
+      .kicker { font:600 16px Arial, sans-serif; fill:#2a5f93; }
+      .label { font:600 21px Arial, sans-serif; fill:#163d69; text-anchor:middle; }
+      .sub { font:16px Arial, sans-serif; fill:#263746; text-anchor:middle; }
+      .small { font:14px Arial, sans-serif; fill:#405466; text-anchor:middle; }
+    </style>
+  </defs>
+  <rect class="bg" width="1600" height="900"/>
+  <text class="kicker" x="60" y="70">RUNTIME DECISION LOOP</text>
+  <text class="label" x="800" y="120">Every turn should be bounded, validated, and recoverable</text>
+
+  <path class="line" d="M250 275 H315"/>
+  <path class="line" d="M555 275 H620"/>
+  <path class="line" d="M860 275 H925"/>
+  <path class="line" d="M1165 275 H1230"/>
+  <path class="line" d="M1360 365 V540"/>
+  <path class="line" d="M1230 610 H1165"/>
+  <path class="line" d="M925 610 H860"/>
+  <path class="line" d="M620 610 H555"/>
+  <path class="line" d="M315 610 H250"/>
+
+  <g><rect class="node" x="55" y="220" width="195" height="110" rx="16"/><text class="label" x="152" y="265">1. Receive</text><text class="sub" x="152" y="295">voice, text, event</text></g>
+  <g><rect class="node" x="315" y="220" width="240" height="110" rx="16"/><text class="label" x="435" y="265">2. Classify intent</text><text class="sub" x="435" y="295">answer, move on, close</text></g>
+  <g><rect class="node" x="620" y="220" width="240" height="110" rx="16"/><text class="label" x="740" y="265">3. Build context</text><text class="sub" x="740" y="295">digest + recent turns</text></g>
+  <g><rect class="decision" x="925" y="220" width="240" height="110" rx="16"/><text class="label" x="1045" y="265">4. Choose action</text><text class="sub" x="1045" y="295">answer, retrieve, tool</text></g>
+  <g><rect class="node" x="1230" y="220" width="260" height="145" rx="16"/><text class="label" x="1360" y="265">5. Execute</text><text class="sub" x="1360" y="295">call model or tool</text><text class="sub" x="1360" y="325">apply timeout and retry</text></g>
+
+  <path class="branch" d="M1045 330 V430 H250"/>
+  <path class="branch" d="M1045 330 V430 H740"/>
+  <path class="branch" d="M1045 330 V430 H1240"/>
+  <text class="small" x="390" y="420">clarify</text>
+  <text class="small" x="740" y="420">retrieve evidence</text>
+  <text class="small" x="1240" y="420">call a tool</text>
+
+  <g><rect class="result" x="1230" y="540" width="260" height="140" rx="16"/><text class="label" x="1360" y="585">6. Validate</text><text class="sub" x="1360" y="615">schema, evidence, scope</text><text class="sub" x="1360" y="645">safe to speak or show?</text></g>
+  <g><rect class="result" x="925" y="555" width="240" height="110" rx="16"/><text class="label" x="1045" y="600">7. Respond</text><text class="sub" x="1045" y="630">concise, meaningful</text></g>
+  <g><rect class="result" x="620" y="555" width="240" height="110" rx="16"/><text class="label" x="740" y="600">8. Persist</text><text class="sub" x="740" y="630">clean turn and status</text></g>
+  <g><rect class="result" x="315" y="555" width="240" height="110" rx="16"/><text class="label" x="435" y="600">9. Continue</text><text class="sub" x="435" y="630">next question or close</text></g>
+  <g><rect class="result" x="55" y="555" width="195" height="110" rx="16"/><text class="label" x="152" y="600">10. Observe</text><text class="sub" x="152" y="630">latency, failure, test</text></g>
+  <path class="branch" d="M152 665 C152 770 1360 770 1360 680"/>
+  <text class="small" x="800" y="760">new turn or recovery path</text>
+</svg>

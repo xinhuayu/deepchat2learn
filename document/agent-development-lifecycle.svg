@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
+  <title id="title">AI agentic tool development lifecycle</title>
+  <desc id="desc">A repeatable lifecycle from framing the user journey through vertical slicing, instrumentation, validation, improvement, and release, with feedback returning from observation to framing.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="4" orient="auto"><path d="M0,0 L0,8 L10,4 z" fill="#2a5f93"/></marker>
+    <marker id="arrowAmber" markerWidth="12" markerHeight="12" refX="10" refY="4" orient="auto"><path d="M0,0 L0,8 L10,4 z" fill="#c9822d"/></marker>
+    <style>
+      .bg { fill:#ffffff; }
+      .lane { fill:#fbfdff; stroke:#d6e3ef; stroke-width:2; }
+      .stage { fill:#eaf2fb; stroke:#2a5f93; stroke-width:2; }
+      .stageStrong { fill:#dceefa; stroke:#174f80; stroke-width:3; }
+      .gate { fill:#f6f9fc; stroke:#5f7890; stroke-width:2; }
+      .line { stroke:#2a5f93; stroke-width:3; fill:none; marker-end:url(#arrow); }
+      .feedback { stroke:#c9822d; stroke-width:3; fill:none; stroke-dasharray:10 8; marker-end:url(#arrowAmber); }
+      .kicker { font:600 16px Arial, sans-serif; fill:#2a5f93; }
+      .label { font:600 22px Arial, sans-serif; fill:#163d69; text-anchor:middle; }
+      .sub { font:16px Arial, sans-serif; fill:#263746; text-anchor:middle; }
+      .small { font:14px Arial, sans-serif; fill:#405466; }
+      .gateTitle { font:600 17px Arial, sans-serif; fill:#163d69; text-anchor:middle; }
+    </style>
+  </defs>
+  <rect class="bg" width="1600" height="900"/>
+  <rect class="lane" x="30" y="35" width="1540" height="500" rx="24"/>
+  <text class="kicker" x="60" y="75">DEVELOPMENT LIFECYCLE</text>
+  <text class="label" x="800" y="125">Build a trustworthy agent in small, observable steps</text>
+
+  <path class="line" d="M270 300 H315"/>
+  <path class="line" d="M540 300 H585"/>
+  <path class="line" d="M810 300 H855"/>
+  <path class="line" d="M1080 300 H1125"/>
+  <path class="line" d="M1350 300 H1395"/>
+
+  <g><rect class="stageStrong" x="60" y="220" width="210" height="160" rx="16"/><text class="label" x="165" y="265">1. Frame</text><text class="sub" x="165" y="305">user, goal, risk</text><text class="sub" x="165" y="335">acceptance test</text></g>
+  <g><rect class="stage" x="330" y="220" width="210" height="160" rx="16"/><text class="label" x="435" y="265">2. Slice</text><text class="sub" x="435" y="305">one complete path</text><text class="sub" x="435" y="335">typed fallback</text></g>
+  <g><rect class="stage" x="600" y="220" width="210" height="160" rx="16"/><text class="label" x="705" y="265">3. Instrument</text><text class="sub" x="705" y="305">states, contracts</text><text class="sub" x="705" y="335">logs, metrics</text></g>
+  <g><rect class="stage" x="870" y="220" width="210" height="160" rx="16"/><text class="label" x="975" y="265">4. Validate</text><text class="sub" x="975" y="305">real user behavior</text><text class="sub" x="975" y="335">failure paths</text></g>
+  <g><rect class="stage" x="1140" y="220" width="210" height="160" rx="16"/><text class="label" x="1245" y="265">5. Improve</text><text class="sub" x="1245" y="305">smallest safe fix</text><text class="sub" x="1245" y="335">regression test</text></g>
+  <g><rect class="stageStrong" x="1410" y="220" width="130" height="160" rx="16"/><text class="label" x="1475" y="265">6.</text><text class="label" x="1475" y="295">Release</text><text class="sub" x="1475" y="335">explainable</text></g>
+
+  <path class="feedback" d="M1500 410 C1500 500 150 500 150 410"/>
+  <text class="small" x="800" y="490" text-anchor="middle">Every observation can send the system back to framing</text>
+
+  <rect class="lane" x="120" y="600" width="1360" height="210" rx="20"/>
+  <text class="kicker" x="150" y="645">THREE RELEASE GATES</text>
+  <g><rect class="gate" x="180" y="680" width="340" height="85" rx="12"/><text class="gateTitle" x="350" y="715">Useful</text><text class="sub" x="350" y="744">solves the intended user problem</text></g>
+  <g><rect class="gate" x="630" y="680" width="340" height="85" rx="12"/><text class="gateTitle" x="800" y="715">Observable</text><text class="sub" x="800" y="744">failures can be seen and reproduced</text></g>
+  <g><rect class="gate" x="1080" y="680" width="340" height="85" rx="12"/><text class="gateTitle" x="1250" y="715">Safe to extend</text><text class="sub" x="1250" y="744">new features preserve contracts</text></g>
+</svg>
