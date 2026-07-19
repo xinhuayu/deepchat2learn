@@ -10,6 +10,12 @@ For the architecture, conversation flows, feature map, current limitations, and 
 
 Bundled skill profiles can shape how supplied materials are digested and discussed. The first profile is `epi-research`, a doctoral-level epidemiologic methods critique guide stored under `skills/epi-research/`. Skill guidance controls the review method and response structure; paper-specific claims and citations must still come from the uploaded material.
 
+## Try the live demo
+
+Open the hosted application at [deepchat2learn.onrender.com](https://deepchat2learn.onrender.com/).
+
+For the best experience, use a modern browser, allow microphone and speaker access when prompted, and begin with a short question. The live deployment may provide either model-backed responses or the built-in local fallback depending on its current provider configuration. Do not enter confidential or sensitive source material into the public demo.
+
 ## Run locally
 
 Requires Node.js 22.5 or newer. This release uses Node's built-in `node:sqlite` module when `SQLITE_PATH` is configured.
