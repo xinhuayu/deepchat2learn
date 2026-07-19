@@ -65,21 +65,6 @@ async function fetchWithTimeout(fetchImpl, url, options, timeoutMs, timeoutCode,
   }
 }
 
-async function rejectedRealtimeResponse(response, message, code) {
-  const error = new HttpError(502, message, code);
-  const details = {};
-  if (Number.isInteger(response?.status)) details.upstreamStatus = response.status;
-  try {
-    const payload = await response.json();
-    const providerCode = String(payload?.error?.code || '').trim();
-    if (providerCode) details.providerCode = providerCode;
-  } catch {
-    // Provider response bodies are intentionally not retained or exposed.
-  }
-  if (Object.keys(details).length) error.details = details;
-  return error;
-}
-
 function instructions(topic, questionLimit) {
   return [
     'You are the voice layer for a supportive speaking coach.',
@@ -109,7 +94,7 @@ export async function createRealtimeSession({ apiKey, topic, questionLimit = def
       }
     })
   }, timeoutMs, 'REALTIME_TIMEOUT', 'Live AI voice took too long to initialize. Continue by typing.', 'REALTIME_INIT_FAILED', 'Live AI voice could not be initialized. Continue by typing.');
-  if (!response.ok) throw await rejectedRealtimeResponse(response, 'Live AI voice could not be initialized. Continue by typing.', 'REALTIME_INIT_FAILED');
+  if (!response.ok) throw new HttpError(502, 'Live AI voice could not be initialized. Continue by typing.', 'REALTIME_INIT_FAILED');
   const payload = await response.json();
   return {
     ...payload,
@@ -137,6 +122,6 @@ export async function createRealtimeCall({ apiKey, sdp, topic, questionLimit = d
     }
   }));
   const response = await fetchWithTimeout(fetchImpl, callsUrl, { method: 'POST', headers: { authorization: `Bearer ${apiKey}` }, body: form }, timeoutMs, 'REALTIME_TIMEOUT', 'Live AI voice took too long to connect. Continue by typing.', 'REALTIME_CALL_FAILED', 'Live AI voice could not connect. Continue by typing.');
-  if (!response.ok) throw await rejectedRealtimeResponse(response, 'Live AI voice could not connect. Continue by typing.', 'REALTIME_CALL_FAILED');
+  if (!response.ok) throw new HttpError(502, 'Live AI voice could not connect. Continue by typing.', 'REALTIME_CALL_FAILED');
   return { sdp: await response.text(), model: audioModel };
 }

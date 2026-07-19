@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createConversationOrchestrator } from '../src/conversationOrchestrator.mjs';
-import { countCompletedTurns, InMemoryStore } from '../src/store.mjs';
+import { InMemoryStore } from '../src/store.mjs';
 
 function createSkillRegistry() {
   return {
@@ -333,66 +333,6 @@ test('handleTurn preserves control and new-question voice behavior without consu
   assert.equal(newQuestionResult.turn.intent, 'new_question');
   assert.equal(newQuestionResult.countsAsAnswer, false);
   assert.equal(liveSession.currentQuestion, 'What assumption matters most here?');
-});
-
-test('handleTurn completes voice and typed close requests without consuming a round', async () => {
-  const store = new InMemoryStore();
-  const { session } = store.createSession({ topic: 'Closing controls' });
-  const liveSession = store.get(session.id);
-  liveSession.currentQuestion = 'What is the main point?';
-  liveSession.voiceTurns = [];
-  liveSession.voiceIdempotency = new Map();
-  const closeResult = {
-    turn: { id: 'close-1', intent: 'close', status: 'answered' },
-    answerText: 'I will wrap up this conversation and prepare your session summary.',
-    answerSpeechText: 'I will wrap up this conversation and prepare your session summary.',
-    knowledgeLayers: ['llm'],
-    citations: [],
-    externalCitations: [],
-    discussionPoints: [],
-    suggestions: [],
-    unsupportedOrUnresolved: [],
-    conflicts: [],
-    confidence: 'high',
-    followUp: null,
-    sourceSupportStatus: 'not_applicable',
-    externalKnowledgeStatus: 'not_requested',
-    nextState: 'completed',
-    countsAsAnswer: false,
-    closeRequested: true
-  };
-  const orchestrator = createConversationOrchestrator({
-    store,
-    coach: {},
-    skillRegistry: createSkillRegistry(),
-    researchAdapter: { lookup: async () => { throw new Error('close requests must not search externally'); } },
-    config: { answerTurn: async () => closeResult }
-  });
-
-  const voice = await orchestrator.handleTurn({
-    session: liveSession,
-    route: 'voice_turn',
-    payload: { transcript: "I'm done.", transcriptReviewed: true, idempotencyKey: 'close-voice-1' }
-  });
-
-  assert.equal(voice.closeRequested, true);
-  assert.equal(voice.done, true);
-  assert.equal(liveSession.status, 'ready_to_complete');
-  assert.equal(countCompletedTurns(liveSession), 0);
-
-  const { session: typedSession } = store.createSession({ topic: 'Typed closing controls' });
-  const typedLiveSession = store.get(typedSession.id);
-  typedLiveSession.currentQuestion = 'What is the main point?';
-  const typed = await orchestrator.handleTurn({
-    session: typedLiveSession,
-    route: 'typed_question',
-    payload: { question: 'Let us close the conversation.', mode: 'general', idempotencyKey: 'close-typed-1' }
-  });
-
-  assert.equal(typed.closeRequested, true);
-  assert.equal(typed.done, true);
-  assert.equal(typedLiveSession.status, 'ready_to_complete');
-  assert.equal(countCompletedTurns(typedLiveSession), 0);
 });
 
 test('server reuses orchestrator-owned routing helpers instead of redefining them', async () => {

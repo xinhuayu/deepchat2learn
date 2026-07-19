@@ -50,17 +50,6 @@ test('createVoiceTurn normalizes a pending voice turn', () => {
   assert.equal(typeof turn.createdAt, 'string');
 });
 
-test('createVoiceTurn stores a cleaned transcript for model processing', () => {
-  const turn = createVoiceTurn({
-    sessionId: 'session-clean',
-    inputMode: 'voice',
-    transcript: 'Um, what is what is the distribution uh of the outcome?',
-    transcriptReviewed: false
-  });
-
-  assert.equal(turn.transcript, 'what is the distribution of the outcome?');
-});
-
 test('approveVoiceAnswer returns an answered turn with normalized metadata', () => {
   const pending = createVoiceTurn({
     sessionId: 'session-3',
@@ -212,11 +201,9 @@ test('practice voice evaluation receives the academic conversation skill', async
     }
   };
   let receivedSkillProfile = null;
-  let receivedAgenda = null;
   const baseCoach = {
     async evaluateAnswer(input) {
       receivedSkillProfile = input.skillProfile;
-      receivedAgenda = input.agenda;
       return {
         strengths: ['You named the comparison.', 'You used a temporal sequence.'],
         improvement: 'Add the outcome definition.',
@@ -240,8 +227,6 @@ test('practice voice evaluation receives the academic conversation skill', async
   });
 
   assert.equal(receivedSkillProfile.id, 'academic-conversation');
-  assert.equal(receivedAgenda.currentStage, 'orientation');
-  assert.equal(receivedAgenda.nextStage, 'design');
 });
 
 test('conversation context keeps source and practice histories separate and bounded', () => {
@@ -254,95 +239,17 @@ test('conversation context keeps source and practice histories separate and boun
     ],
     voiceTurns: [
       { intent: 'source_question', transcript: 'Source voice question', answerText: 'Source voice answer' },
-      { intent: 'coaching', transcript: 'Practice voice answer', answerText: 'Practice response' },
-      { mode: 'source', intent: 'source_answer', status: 'interrupted', transcript: 'Interrupted source question', answerText: 'Interrupted source answer' }
+      { intent: 'coaching', transcript: 'Practice voice answer', answerText: 'Practice response' }
     ]
   };
   const sourceHistory = buildConversationHistory(sourceSession);
-  assert.equal(sourceHistory.length, 3);
+  assert.equal(sourceHistory.length, 2);
   assert.ok(sourceHistory.every(item => item.mode === 'source'));
-  assert.doesNotMatch(JSON.stringify(sourceHistory), /Interrupted source/);
 
   const practiceSession = { ...sourceSession, sourceMode: 'none' };
   const practiceHistory = buildConversationHistory(practiceSession);
-  assert.equal(practiceHistory.length, 3);
+  assert.equal(practiceHistory.length, 2);
   assert.ok(practiceHistory.every(item => item.mode === 'practice'));
-});
-
-test('source retrieval query uses only immediate prior exchanges for a short follow-up', async () => {
-  const session = {
-    id: 'source-history-3', sourceMode: 'source', currentQuestion: 'What does this result mean?',
-    turns: [],
-    voiceTurns: [
-      { id: 'oldest', mode: 'source', intent: 'source_answer', transcript: 'oldest answer', answerText: 'oldest explanation' },
-      { id: 'q1', mode: 'source', intent: 'source_answer', transcript: 'first prior answer', answerText: 'first explanation' },
-      { id: 'q2', mode: 'source', intent: 'source_answer', transcript: 'second prior answer', answerText: 'second explanation' },
-      { id: 'q3', mode: 'source', intent: 'source_answer', transcript: 'third prior answer', answerText: 'third explanation' }
-    ],
-    sources: [{ id: 'paper', name: 'paper.txt', chunks: [{ id: 'paper:1', sourceId: 'paper', sourceName: 'paper.txt', text: 'The study reports an association.', start: 0, end: 37 }] }],
-    sourceDigest: null
-  };
-  let query;
-  const store = {
-    retrieveSourceChunks(_sessionId, value) { query = value; return session.sources[0].chunks; },
-    recordVoiceTurnResult(_session, _key, result) { return result; }
-  };
-  const coach = {
-    async composeBlendedAnswer() {
-      return {
-        answerText: 'The source reports an association.', answerSpeechText: 'The source reports an association.',
-        sourceClaims: [], llmBackground: [], discussionPoints: [], suggestions: [], externalClaims: [], citations: [], externalCitations: [],
-        confidence: 'medium', uncertainty: [], conflicts: [], followUp: 'What limitation should we examine next?'
-      };
-    }
-  };
-  await answerVoiceTurn({
-    session, transcript: 'Why?', idempotencyKey: 'history-3', store, coach,
-    externalResearch: { approved: false },
-    skillRegistry: { get(id) { return { id, instructions: 'Use academic conversation guidance.' }; } }
-  });
-
-  assert.match(query, /What does this result mean\?/);
-  assert.match(query, /Why\?/);
-  assert.doesNotMatch(query, /oldest answer|oldest explanation/);
-  assert.match(query, /second prior answer|second explanation/);
-  assert.match(query, /third prior answer|third explanation/);
-});
-
-test('source retrieval query keeps a substantive turn focused on the current question and answer', async () => {
-  const session = {
-    id: 'source-focused-query', sourceMode: 'source', currentQuestion: 'What limitation did the authors identify?',
-    turns: [],
-    voiceTurns: [
-      { id: 'prior-1', mode: 'source', intent: 'source_answer', transcript: 'The design was longitudinal.', answerText: 'It followed participants over time.' },
-      { id: 'prior-2', mode: 'source', intent: 'source_answer', transcript: 'The sample included older adults.', answerText: 'The participants were drawn from a national cohort.' }
-    ],
-    sources: [{ id: 'paper', name: 'paper.txt', chunks: [{ id: 'paper:1', sourceId: 'paper', sourceName: 'paper.txt', text: 'The study reports an association.', start: 0, end: 37 }] }],
-    sourceDigest: null
-  };
-  let query;
-  const store = {
-    retrieveSourceChunks(_sessionId, value) { query = value; return session.sources[0].chunks; },
-    recordVoiceTurnResult(_session, _key, result) { return result; }
-  };
-  const coach = {
-    async composeBlendedAnswer() {
-      return {
-        answerText: 'The main limitation concerns the observational design.', answerSpeechText: 'The main limitation concerns the observational design.',
-        sourceClaims: [], llmBackground: [], discussionPoints: [], suggestions: [], externalClaims: [], citations: [], externalCitations: [],
-        confidence: 'medium', uncertainty: [], conflicts: [], followUp: 'What assumption matters most?'
-      };
-    }
-  };
-  await answerVoiceTurn({
-    session, transcript: 'The authors note that residual confounding may remain because the study is observational.',
-    idempotencyKey: 'focused-query-1', store, coach,
-    externalResearch: { approved: false },
-    skillRegistry: { get(id) { return { id, instructions: 'Use academic conversation guidance.' }; } }
-  });
-
-  assert.match(query, /limitation|residual confounding|observational/i);
-  assert.doesNotMatch(query, /longitudinal|national cohort|older adults/i);
 });
 
 test('new question requests generate a fresh question without consuming an answer round', async () => {
@@ -424,125 +331,6 @@ test('source conversation new-question requests keep the academic dialogue skill
   assert.equal(receivedSkillProfile.id, 'academic-conversation');
   assert.equal(result.followUp, 'What assumption matters most for interpreting this association?');
   assert.equal(countCompletedTurns(session), 0);
-});
-
-test('close phrases request completion without consuming an answer round', async () => {
-  const session = {
-    id: 'session-close-request',
-    topic: 'research methods',
-    sourceMode: 'source',
-    currentQuestion: 'What is the main research question?',
-    questionLimit: 200,
-    turns: [],
-    voiceTurns: [],
-    voiceIdempotency: new Map(),
-    sources: [{ id: 'source-1', name: 'paper.txt', text: 'The study tracks exposure and later outcomes.' }]
-  };
-  const store = {
-    getVoiceTurnReplay() { return null; },
-    recordVoiceTurnResult(activeSession, key, result) {
-      activeSession.voiceTurns.push(result.turn);
-      if (key) activeSession.voiceIdempotency.set(key, result);
-      return result;
-    }
-  };
-
-  const result = await answerVoiceTurn({
-    session,
-    transcript: "I'm done with this conversation.",
-    idempotencyKey: 'close-request-1',
-    store,
-    coach: {
-      async composeBlendedAnswer() { throw new Error('close requests must not analyze source content'); },
-      async generalAnswer() { throw new Error('close requests must not call the general answer model'); }
-    }
-  });
-
-  assert.equal(result.closeRequested, true);
-  assert.equal(result.countsAsAnswer, false);
-  assert.equal(result.nextState, 'completed');
-  assert.equal(result.turn.intent, 'close');
-  assert.equal(countCompletedTurns(session), 0);
-});
-
-test('move-on language selects a new question without consuming an answer round', async () => {
-  const session = {
-    id: 'session-move-on-language',
-    topic: 'research methods',
-    sourceMode: 'source',
-    conversationSkillId: 'academic-conversation',
-    currentQuestion: 'What is the main research question?',
-    questionLimit: 200,
-    turns: [],
-    voiceTurns: [],
-    voiceIdempotency: new Map(),
-    sources: [{ id: 'source-1', name: 'paper.txt', text: 'The study tracks exposure and later outcomes.' }]
-  };
-  const store = {
-    getVoiceTurnReplay() { return null; },
-    recordVoiceTurnResult(activeSession, key, result) {
-      activeSession.voiceTurns.push(result.turn);
-      if (key) activeSession.voiceIdempotency.set(key, result);
-      return result;
-    }
-  };
-
-  const result = await answerVoiceTurn({
-    session,
-    transcript: "Let's check another point.",
-    idempotencyKey: 'move-on-language-1',
-    store,
-    coach: {
-      async nextQuestion() { return 'What outcome measure did the researchers use?'; }
-    },
-    skillRegistry: { get(id) { return { id, instructions: `Use ${id} guidance.` }; } }
-  });
-
-  assert.equal(result.turn.intent, 'new_question');
-  assert.equal(result.countsAsAnswer, false);
-  assert.equal(result.followUp, 'What outcome measure did the researchers use?');
-  assert.equal(countCompletedTurns(session), 0);
-});
-
-test('practice explanatory questions receive direct general answers', async () => {
-  const session = {
-    id: 'session-explanatory-question',
-    topic: 'epidemiologic study design',
-    sourceMode: 'none',
-    currentQuestion: 'What is a cohort study?',
-    questionLimit: 50,
-    turns: [],
-    voiceTurns: [],
-    voiceIdempotency: new Map(),
-    sources: []
-  };
-  const store = {
-    getVoiceTurnReplay() { return null; },
-    recordVoiceTurnResult(activeSession, key, result) {
-      activeSession.voiceTurns.push(result.turn);
-      if (key) activeSession.voiceIdempotency.set(key, result);
-      return result;
-    }
-  };
-  let called = false;
-  const result = await answerVoiceTurn({
-    session,
-    transcript: 'Can you provide an example of a cohort study?',
-    idempotencyKey: 'explanatory-question-1',
-    store,
-    coach: {
-      async generalAnswer(question) {
-        called = true;
-        assert.match(question, /provide an example/i);
-        return { answer: 'For example, follow smokers and nonsmokers to compare later lung disease.' };
-      }
-    }
-  });
-
-  assert.equal(called, true);
-  assert.equal(result.turn.intent, 'general_question');
-  assert.match(result.answerText, /follow smokers/i);
-  assert.equal(result.countsAsAnswer, true);
 });
 
 test('answerVoiceTurn returns the approved source answer envelope and replays duplicate idempotency keys', async () => {
@@ -652,7 +440,6 @@ test('answerVoiceTurn returns the approved source answer envelope and replays du
   assert.doesNotMatch(first.answerSpeechText, /Discussion point:|Suggestion:|Next question:/);
   assert.match(first.answerSpeechText, /Would you like the exact supporting passage\?/);
   assert.deepEqual(first.knowledgeLayers, ['source', 'llm']);
-  assert.deepEqual(first.llmBackground, ['This supports the paper’s learning recommendation.']);
   assert.deepEqual(first.discussionPoints, ['Compare the argument with the study design.']);
   assert.deepEqual(first.suggestions, ['Check whether the evidence generalizes to your setting.']);
   assert.equal(first.citations[0].page, 4);
@@ -676,57 +463,6 @@ test('answerVoiceTurn returns the approved source answer envelope and replays du
 
   assert.deepEqual(replay, first);
   assert.equal(session.voiceTurns.length, 1);
-});
-
-test('voice idempotency keys cannot replay an earlier answer for changed transcript content', async () => {
-  const session = {
-    id: 'voice-idempotency-content',
-    topic: 'Research methods',
-    sourceMode: 'none',
-    currentQuestion: 'What is the study design?',
-    turns: [],
-    voiceTurns: [],
-    voiceIdempotency: new Map(),
-    sources: []
-  };
-  const store = {
-    getVoiceTurnReplay(activeSession, key) { return activeSession.voiceIdempotency.get(key) || null; },
-    recordVoiceTurnResult(activeSession, key, result) {
-      const existing = activeSession.voiceIdempotency.get(key);
-      if (existing) return existing;
-      activeSession.voiceTurns.push(result.turn);
-      activeSession.voiceIdempotency.set(key, result);
-      return result;
-    }
-  };
-  const coach = {
-    async generalAnswer(question) {
-      return { answer: `Discussing ${question}.` };
-    }
-  };
-
-  await answerVoiceTurn({
-    session,
-    transcript: 'What is the study design?',
-    idempotencyKey: 'same-content-key',
-    externalResearch: { approved: false },
-    store,
-    coach,
-    skillRegistry: { get(id) { return { id, instructions: 'Use academic conversation guidance.' }; } }
-  });
-
-  await assert.rejects(
-    () => answerVoiceTurn({
-      session,
-      transcript: 'What was the study population?',
-      idempotencyKey: 'same-content-key',
-      externalResearch: { approved: false },
-      store,
-      coach,
-      skillRegistry: { get(id) { return { id, instructions: 'Use academic conversation guidance.' }; } }
-    }),
-    error => error?.code === 'VOICE_IDEMPOTENCY_CONFLICT'
-  );
 });
 
 test('source conversation evaluates an answer against the active question without switching to practice coaching', async () => {
@@ -802,220 +538,6 @@ test('source conversation evaluates an answer against the active question withou
   assert.equal(received.turnRole, 'answer_to_ai');
 });
 
-test('source conversation uses extracted chunks while the cross-source digest is still processing', async () => {
-  const chunk = {
-    id: 'source-ready:chunk:1',
-    sourceId: 'source-ready',
-    sourceName: 'paper.txt',
-    text: 'The cohort study followed adults for eight years and measured cognition annually.',
-    page: 2,
-    section: 'Methods',
-    start: 0,
-    end: 78
-  };
-  const session = {
-    id: 'session-source-pending-digest',
-    topic: 'Cohort study methods',
-    sourceMode: 'source',
-    activeSkillId: 'epi-research',
-    conversationSkillId: 'academic-conversation',
-    currentQuestion: 'What design did the paper use?',
-    digestStatus: 'processing',
-    turns: [],
-    voiceTurns: [],
-    voiceIdempotency: new Map(),
-    sources: [{
-      id: 'source-ready',
-      name: 'paper.txt',
-      status: 'digesting',
-      chunks: [chunk],
-      digest: { digestText: 'A longitudinal cohort study.' }
-    }]
-  };
-  const store = {
-    async retrieveSourceChunks() { return [chunk]; },
-    getVoiceTurnReplay() { return null; },
-    recordVoiceTurnResult(activeSession, key, result) {
-      activeSession.voiceTurns.push(result.turn);
-      if (key) activeSession.voiceIdempotency.set(key, result);
-      return result;
-    }
-  };
-  let composed = false;
-  const result = await answerVoiceTurn({
-    session,
-    transcript: 'What design did the paper use?',
-    transcriptConfidence: 0.95,
-    transcriptReviewed: true,
-    idempotencyKey: 'pending-digest-turn',
-    store,
-    coach: {
-      async composeBlendedAnswer() {
-        composed = true;
-        return {
-          answerText: 'It used a longitudinal cohort design.',
-          answerSpeechText: 'It used a longitudinal cohort design.',
-          sourceClaims: [{
-            claim: 'The cohort study followed adults for eight years and measured cognition annually.',
-            chunkId: chunk.id,
-            citationExcerpt: chunk.text
-          }],
-          llmBackground: [],
-          discussionPoints: [],
-          suggestions: [],
-          externalClaims: [],
-          citations: [{ sourceId: chunk.sourceId, chunkId: chunk.id, excerpt: chunk.text, page: 2, section: 'Methods', start: 0, end: 78 }],
-          externalCitations: [],
-          confidence: 'high',
-          uncertainty: [],
-          conflicts: [],
-          followUp: 'What feature makes it longitudinal?'
-        };
-      }
-    },
-    skillRegistry: { get(id) { return { id, instructions: 'Discuss the paper clearly.' }; } }
-  });
-
-  assert.equal(composed, true);
-  assert.equal(result.answerText, 'It used a longitudinal cohort design.');
-  assert.deepEqual(result.knowledgeLayers, ['source']);
-  assert.match(result.sourceDigestStatus, /fuller cross-source overview/i);
-});
-
-test('source conversation passes a ready per-source digest when the consolidated digest is absent', async () => {
-  const chunk = {
-    id: 'source-ready-digest:chunk:1',
-    sourceId: 'source-ready-digest',
-    sourceName: 'paper.txt',
-    text: 'The study evaluates whether cognitive trajectories predict later health outcomes.',
-    page: 1,
-    section: 'Abstract',
-    start: 0,
-    end: 78
-  };
-  const session = {
-    id: 'session-source-per-source-digest',
-    topic: 'Cognitive trajectories',
-    sourceMode: 'source',
-    activeSkillId: 'epi-research',
-    conversationSkillId: 'academic-conversation',
-    currentQuestion: 'What is the paper about?',
-    digestStatus: 'queued',
-    turns: [],
-    voiceTurns: [],
-    voiceIdempotency: new Map(),
-    sourceDigest: null,
-    sources: [{
-      id: 'source-ready-digest',
-      name: 'paper.txt',
-      status: 'digesting',
-      chunks: [chunk],
-      digest: {
-        digestText: 'The paper evaluates whether cognitive trajectories predict later health outcomes.',
-        keyPoints: [{ text: 'The study evaluates a longitudinal association.', evidence: 'The study evaluates whether cognitive trajectories predict later health outcomes.' }],
-        openQuestions: ['Does change add value beyond baseline cognition?']
-      }
-    }]
-  };
-  const store = {
-    async retrieveSourceChunks() { return [chunk]; },
-    getVoiceTurnReplay() { return null; },
-    recordVoiceTurnResult(activeSession, key, value) {
-      activeSession.voiceTurns.push(value.turn);
-      if (key) activeSession.voiceIdempotency.set(key, value);
-      return value;
-    }
-  };
-  let receivedDigest = null;
-  const result = await answerVoiceTurn({
-    session,
-    transcript: 'What is the paper mainly trying to learn?',
-    transcriptConfidence: 0.95,
-    transcriptReviewed: true,
-    idempotencyKey: 'per-source-digest-turn',
-    store,
-    coach: {
-      async composeBlendedAnswer(input) {
-        receivedDigest = input.sourceDigest;
-        return {
-          answerText: 'The paper evaluates whether cognitive trajectories predict later health outcomes.',
-          answerSpeechText: 'The paper evaluates whether cognitive trajectories predict later health outcomes.',
-          sourceClaims: [{ claim: chunk.text, chunkId: chunk.id, citationExcerpt: chunk.text }],
-          llmBackground: [], discussionPoints: [], suggestions: [], externalClaims: [],
-          citations: [{ sourceId: chunk.sourceId, chunkId: chunk.id, excerpt: chunk.text, start: 0, end: chunk.text.length }],
-          externalCitations: [], confidence: 'high', uncertainty: [], conflicts: [],
-          followUp: 'What population did the authors study?'
-        };
-      }
-    },
-    skillRegistry: { get(id) { return { id, instructions: `Use ${id} guidance.` }; } }
-  });
-
-  assert.equal(result.turn.status, 'answered');
-  assert.equal(receivedDigest.mainArgument, 'The paper evaluates whether cognitive trajectories predict later health outcomes.');
-  assert.equal(receivedDigest.keyPoints[0].text, 'The study evaluates a longitudinal association.');
-  assert.deepEqual(receivedDigest.openQuestions, ['Does change add value beyond baseline cognition?']);
-});
-
-test('source retrieval includes the latest source answer so short follow-ups stay grounded', async () => {
-  const chunk = {
-    id: 'source-follow-up:chunk:1',
-    sourceId: 'source-follow-up',
-    sourceName: 'paper.txt',
-    text: 'A cohort design follows exposure-defined groups over time.',
-    page: 2,
-    section: 'Methods',
-    start: 0,
-    end: 58
-  };
-  const session = {
-    id: 'session-source-follow-up',
-    topic: 'Study design',
-    sourceMode: 'source',
-    activeSkillId: 'epi-research',
-    conversationSkillId: 'academic-conversation',
-    currentQuestion: 'What should we examine next?',
-    turns: [],
-    voiceTurns: [{ mode: 'source', intent: 'source_answer', transcript: 'It uses a cohort design.', answerText: 'The paper follows exposure-defined groups over time.' }],
-    voiceIdempotency: new Map(),
-    sources: [{ id: 'source-follow-up', name: 'paper.txt', chunks: [chunk] }],
-    sourceDigest: { mainArgument: 'The paper uses a cohort design.', keyPoints: [], evidence: [], conflicts: [], openQuestions: [] }
-  };
-  let retrievalQuery = '';
-  const result = await answerVoiceTurn({
-    session,
-    transcript: 'Why?',
-    transcriptReviewed: true,
-    idempotencyKey: 'source-follow-up-turn',
-    store: {
-      async retrieveSourceChunks(_sessionId, query) { retrievalQuery = query; return [chunk]; },
-      getVoiceTurnReplay() { return null; },
-      recordVoiceTurnResult(activeSession, key, value) {
-        activeSession.voiceTurns.push(value.turn);
-        if (key) activeSession.voiceIdempotency.set(key, value);
-        return value;
-      }
-    },
-    coach: {
-      async composeBlendedAnswer() {
-        return {
-          answerText: 'The design matters because it preserves the time order between exposure and outcome.',
-          answerSpeechText: 'The design matters because it preserves the time order between exposure and outcome.',
-          sourceClaims: [{ claim: chunk.text, chunkId: chunk.id, citationExcerpt: chunk.text }],
-          llmBackground: [], discussionPoints: [], suggestions: [], externalClaims: [],
-          citations: [{ sourceId: chunk.sourceId, chunkId: chunk.id, excerpt: chunk.text, start: 0, end: chunk.text.length }],
-          externalCitations: [], confidence: 'high', uncertainty: [], conflicts: [],
-          followUp: 'What limitation remains?'
-        };
-      }
-    },
-    skillRegistry: { get(id) { return { id, instructions: `Use ${id} guidance.` }; } }
-  });
-
-  assert.equal(result.turn.status, 'answered');
-  assert.match(retrievalQuery, /cohort design/i);
-});
-
 test('source voice replies stay concise and avoid repeating the follow-up question', async () => {
   const session = {
     id: 'session-source-concise',
@@ -1077,66 +599,10 @@ test('source voice replies stay concise and avoid repeating the follow-up questi
   });
 
   assert.equal(result.turn.intent, 'source_answer');
-  assert.match(result.answerSpeechText, /The paper reports that spaced practice improves retention\./);
-  assert.match(result.answerSpeechText, /Compare this result with the study design\./);
+  assert.equal(result.answerSpeechText, 'The paper reports that spaced practice improves retention. What outcome measure supports that finding?');
   assert.equal((result.answerSpeechText.match(/\?/g) || []).length, 1);
-  const spokenSentences = result.answerSpeechText.match(/[^.!?]+[.!?]+/g) || [];
-  assert.ok(spokenSentences.length >= 4);
-  assert.ok(spokenSentences.length <= 6);
   assert.doesNotMatch(result.answerSpeechText, /Discussion point:|Suggestion:|Next question:/);
   assert.equal(result.feedback, undefined);
-});
-
-test('source voice answers expand a short model response with useful synthesized context', async () => {
-  const chunk = {
-    id: 'source-expand:chunk:1',
-    sourceId: 'source-expand',
-    sourceName: 'paper.txt',
-    text: 'The cohort design follows participants over time.',
-    page: 2,
-    section: 'Methods',
-    start: 0,
-    end: 'The cohort design follows participants over time.'.length,
-    relevanceScore: 9
-  };
-  const result = await answerVoiceTurn({
-    session: {
-      id: 'session-source-expand',
-      topic: 'epidemiology',
-      sourceMode: 'source',
-      activeSkillId: 'epi-research',
-      conversationSkillId: 'academic-conversation',
-      currentQuestion: 'What design did the authors use?',
-      turns: [], voiceTurns: [], voiceIdempotency: new Map(),
-      sources: [{ id: chunk.sourceId, name: chunk.sourceName, chunks: [chunk] }]
-    },
-    transcript: 'The authors used a cohort design.',
-    idempotencyKey: 'source-expand-1',
-    store: {
-      retrieveSourceChunks() { return [chunk]; },
-      getVoiceTurnReplay() { return null; },
-      recordVoiceTurnResult(_session, _key, value) { return value; }
-    },
-    coach: {
-      async composeBlendedAnswer() {
-        return {
-          answerText: 'The study uses a cohort design. Participants are followed over time. This preserves the temporal order between exposure and outcome.',
-          answerSpeechText: 'The study uses a cohort design. It follows participants over time.',
-          sourceClaims: [{ claim: chunk.text, chunkId: chunk.id, citationExcerpt: chunk.text }],
-          llmBackground: ['This design can clarify temporal ordering, although it does not remove confounding.'],
-          discussionPoints: ['That distinction matters when interpreting the results as associations rather than causal effects.'],
-          suggestions: [], externalClaims: [],
-          citations: [{ sourceId: chunk.sourceId, chunkId: chunk.id, excerpt: chunk.text, start: 0, end: chunk.text.length }],
-          externalCitations: [], confidence: 'high', uncertainty: [], conflicts: [],
-          followUp: 'What limitation remains?'
-        };
-      }
-    }
-  });
-  const sentences = result.answerSpeechText.match(/[^.!?]+[.!?]+/g) || [];
-  assert.ok(sentences.length >= 4);
-  assert.ok(sentences.length <= 6);
-  assert.match(result.answerSpeechText, /temporal ordering|confounding|associations/i);
 });
 
 test('source voice answers keep not-in-source status separate from ordinary LLM answers', async () => {

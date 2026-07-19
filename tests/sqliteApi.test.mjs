@@ -172,7 +172,7 @@ test('SQLite-backed completion returns the learner summary contract for source s
   }
 });
 
-test('SQLite-backed digest status persists processing and extractive fallback state', async () => {
+test('SQLite-backed digest status persists processing and failed states', async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'deepchat2learn-digest-failure-'));
   const store = new SqliteStore({ path: path.join(directory, 'app.sqlite'), sessionTtlMs: 60_000 });
   let releaseDigest;
@@ -223,16 +223,15 @@ test('SQLite-backed digest status persists processing and extractive fallback st
     assert.equal(processingBody.status, 'processing');
 
     releaseDigest();
-    const completed = await pendingPost;
-    const completedBody = await completed.json();
-    assert.equal(completed.status, 200);
-    assert.equal(completedBody.status, 'ready');
-    assert.equal(completedBody.digest.mode, 'extractive');
-    assert.match(completedBody.digest.warnings.join(' '), /AI digest unavailable/i);
+    const failed = await pendingPost;
+    const failedBody = await failed.json();
+    assert.equal(failed.status, 200);
+    assert.equal(failedBody.status, 'failed');
+    assert.equal(failedBody.error.code, 'DIGEST_MODEL_FAILED');
 
     const restored = store.get(created.session.id);
-    assert.equal(restored.digestStatus, 'ready');
-    assert.equal(restored.sourceDigest.mode, 'extractive');
+    assert.equal(restored.digestStatus, 'failed');
+    assert.equal(restored.digestError.code, 'DIGEST_MODEL_FAILED');
   } finally {
     releaseDigest?.();
     await new Promise(resolve => server.close(resolve));
@@ -315,8 +314,8 @@ test('SQLite-backed voice turn endpoint persists the approved turn and replays d
         transcriptReviewed: true
       })
     });
-    assert.equal(replay.status, 409);
-    assert.equal((await replay.json()).error.code, 'VOICE_IDEMPOTENCY_CONFLICT');
+    assert.equal(replay.status, 200);
+    assert.deepEqual(await replay.json(), firstBody);
 
     const restored = store.get(created.session.id);
     assert.equal(restored.voiceTurns.length, 1);

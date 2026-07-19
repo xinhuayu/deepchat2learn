@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { createRealtimeCall, createRealtimeSession, buildApprovedSpeechRequest, normalizeRealtimeEvent } from '../src/realtime.mjs';
 import { createServer } from '../src/server.mjs';
-import { HttpError } from '../src/store.mjs';
 
 test('realtime adapter source inspection uses the patient shared voice timeout by default', async () => {
   const source = await fs.readFile(new URL('../src/realtime.mjs', import.meta.url), 'utf8');
@@ -67,27 +66,6 @@ test('realtime audio transport accepts an audio model independently of the text 
   assert.notEqual(requestBody.session.model, 'gpt-5-mini');
 });
 
-test('realtime session failure retains only safe upstream diagnostics', async () => {
-  await assert.rejects(
-    () => createRealtimeSession({
-      apiKey: 'test-key',
-      topic: 'Research discussion',
-      fetchImpl: async () => ({
-        ok: false,
-        status: 429,
-        json: async () => ({ error: { code: 'rate_limit_exceeded', message: 'Do not expose this provider detail.' } })
-      })
-    }),
-    error => {
-      assert.equal(error.status, 502);
-      assert.equal(error.code, 'REALTIME_INIT_FAILED');
-      assert.deepEqual(error.details, { upstreamStatus: 429, providerCode: 'rate_limit_exceeded' });
-      assert.doesNotMatch(JSON.stringify(error.details), /provider detail/i);
-      return true;
-    }
-  );
-});
-
 test('realtime call converts an upstream timeout into a typed error', async () => {
   await assert.rejects(
     () => createRealtimeCall({
@@ -127,51 +105,6 @@ test('realtime route requires a valid session and gives a typed fallback without
     assert.equal((await response.json()).error.code, 'REALTIME_NOT_CONFIGURED');
   } finally {
     await new Promise(resolve => server.close(resolve));
-  }
-});
-
-test('realtime call failures update hosted health diagnostics', async () => {
-  const previousApiKey = process.env.OPENAI_API_KEY;
-  process.env.OPENAI_API_KEY = 'test-only-placeholder';
-  const server = createServer({
-    modelGateway: {
-      async createRealtimeCall() {
-        const error = new HttpError(502, 'Live AI voice could not connect. Continue by typing.', 'REALTIME_CALL_FAILED');
-        error.details = { upstreamStatus: 503, providerCode: 'service_unavailable' };
-        throw error;
-      }
-    }
-  });
-  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-  try {
-    const address = server.address();
-    const base = `http://${address.address}:${address.port}`;
-    const create = await fetch(`${base}/api/sessions`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ topic: 'Practice a presentation' })
-    });
-    const created = await create.json();
-    const call = await fetch(`${base}/api/realtime/call`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-session-token': created.token },
-      body: JSON.stringify({ sessionId: created.session.id, sdp: 'v=0' })
-    });
-    assert.equal(call.status, 502);
-    assert.deepEqual((await call.json()).error, {
-      code: 'REALTIME_CALL_FAILED',
-      message: 'Live AI voice could not connect. Continue by typing.',
-      upstreamStatus: 503,
-      providerCode: 'service_unavailable'
-    });
-    const health = await (await fetch(`${base}/api/health`)).json();
-    assert.equal(health.connection.realtimeVoice, 'unavailable');
-    assert.equal(health.connection.realtimeLastError, 'REALTIME_CALL_FAILED');
-    assert.equal(health.connection.realtimeUpstreamStatus, 503);
-  } finally {
-    await new Promise(resolve => server.close(resolve));
-    if (previousApiKey === undefined) delete process.env.OPENAI_API_KEY;
-    else process.env.OPENAI_API_KEY = previousApiKey;
   }
 });
 

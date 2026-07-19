@@ -20,7 +20,7 @@ const BROWSER_CONVERSATION_STATES = [
 const microphoneConstraints = {
   audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
 };
-let state = { session: null, token: null, mode: 'practice', sourceLimits: { maxFiles: 10, maxFileBytes: 20_000_000 }, recognition: null, recognitionActive: false, microphonePermission: 'unknown', speechRecognitionPermission: 'unavailable', speechRecognitionProbe: false, speechRecognitionProbePromise: null, speechRecognitionProbeResolve: null, speechRecognitionProbeTimer: null, isMobileBrowser: false, peer: null, localStream: null, dataChannel: null, remoteAudio: null, pendingSource: null, processedVoiceItems: new Set(), voiceReviewPending: false, voiceConversation: 'off', browserConversationState: 'idle', voiceAnnouncement: '', voiceSubmissionKey: null, voiceRecognitionSessionId: 0, voiceRecognitionAttempts: 0, voiceRecognitionRetryPending: false, transcript: [], materialHistory: [], summary: null, lastFeedback: null, lastSpokenLine: '' };
+let state = { session: null, token: null, mode: 'practice', sourceLimits: { maxFiles: 10, maxFileBytes: 20_000_000 }, recognition: null, recognitionActive: false, microphonePermission: 'unknown', speechRecognitionPermission: 'unavailable', speechRecognitionProbe: false, speechRecognitionProbePromise: null, speechRecognitionProbeResolve: null, speechRecognitionProbeTimer: null, isMobileBrowser: false, realtimeConfigured: false, peer: null, localStream: null, dataChannel: null, remoteAudio: null, pendingSource: null, processedVoiceItems: new Set(), voiceReviewPending: false, voiceConversation: 'off', browserConversationState: 'idle', voiceAnnouncement: '', voiceSubmissionKey: null, voiceRecognitionSessionId: 0, voiceRecognitionAttempts: 0, voiceRecognitionRetryPending: false, transcript: [], materialHistory: [], summary: null, lastFeedback: null, lastSpokenLine: '' };
 let sourceProcessingTimers = [];
 let sourceDigestRequest = null;
 let recordingController = null;
@@ -283,6 +283,7 @@ async function loadServiceStatus() {
     Object.assign(voicePolicy, data.voice || {});
     const capabilities = data.capabilities || {};
     const connection = data.connection || {};
+    state.realtimeConfigured = connection?.realtimeVoice === 'configured';
     const privacy = data.privacy || {};
     const coach = connection?.textModel === 'configured'
       ? 'AI text coaching is configured.'
@@ -1067,12 +1068,13 @@ const voiceCoordinator = {
     clearVoiceCompletionTimer();
     emitAndApplyVoiceEvent('permission_pending', { transport });
     await api(`/api/voice/sessions/${state.session.id}/start`, { method: 'POST' }).catch(() => null);
-    if (!await requestMicrophoneAccess()) {
+    const microphoneAccess = await requestMicrophoneAccess({ retainStream: transport === 'realtime' });
+    if (!microphoneAccess) {
       voiceCoordinator.active = false;
       throw new Error('Microphone access could not be started.');
     }
     if (transport === 'realtime') {
-      await openRealtimeVoiceTransport({ reconnecting });
+      await openRealtimeVoiceTransport({ reconnecting, reusableLocalStream: microphoneAccess });
     }
     await startRecordingForVoiceTransport(transport);
     voiceCoordinator.reconnectAttempts = reconnecting ? voiceCoordinator.reconnectAttempts : 0;
@@ -1487,10 +1489,8 @@ async function prepareVoiceAccess() {
   button.disabled = true;
   button.textContent = 'Checking voice accessâ€¦';
   setBrowserAudioNote('Please allow microphone and browser speech recognition if your browser asks.', true);
-  const [microphoneReady, speechReady] = await Promise.all([
-    requestMicrophoneAccess(),
-    primeBrowserSpeechRecognition()
-  ]);
+  const microphoneReady = await requestMicrophoneAccess();
+  const speechReady = microphoneReady && await primeBrowserSpeechRecognition();
   if (microphoneReady && speechReady) {
     setBrowserAudioNote('Mobile voice access is ready. You can start a voice conversation.');
   } else if (microphoneReady && !state.recognition) {
@@ -1522,7 +1522,7 @@ async function refreshMicrophoneStatus() {
   }
 }
 
-async function requestMicrophoneAccess() {
+async function requestMicrophoneAccess({ retainStream = false } = {}) {
   if (!navigator.mediaDevices?.getUserMedia) {
     setVoiceConversationError('This browser cannot request microphone access.');
     setMicrophoneStatus('unavailable');
@@ -1532,9 +1532,9 @@ async function requestMicrophoneAccess() {
   setVoiceAnnouncement('Please allow microphone access when your browser asks.');
   try {
     const stream = await navigator.mediaDevices.getUserMedia(microphoneConstraints);
-    stream.getTracks().forEach(track => track.stop());
+    if (!retainStream) stream.getTracks().forEach(track => track.stop());
     setMicrophoneStatus('available');
-    return true;
+    return retainStream ? stream : true;
   } catch (error) {
     const denied = error?.name === 'NotAllowedError' || error?.name === 'SecurityError';
     const message = denied
@@ -1632,7 +1632,14 @@ async function startVoiceConversation() {
   state.voiceRecognitionAttempts = 0;
   state.voiceRecognitionRetryPending = false;
   try {
-    await voiceCoordinator.start({ transport: 'browser-fallback' });
+    // Mobile browser speech support is inconsistent across Safari, Firefox,
+    // and Chromium variants. When the server has Realtime configured, prefer
+    // the same WebRTC voice path on mobile instead of selecting a browser by
+    // user-agent or SpeechRecognition implementation details.
+    if (state.isMobileBrowser || !state.recognition) await loadServiceStatus();
+    const preferRealtime = state.realtimeConfigured && (state.isMobileBrowser || !state.recognition);
+    const transport = preferRealtime ? 'realtime' : 'browser-fallback';
+    await voiceCoordinator.start({ transport });
   } catch (error) {
     setVoiceConversationError(error.message || 'Voice input could not start.');
   }
@@ -2358,17 +2365,17 @@ function handleRealtimeTransportMessage(message) {
   emitAndApplyVoiceEvent(message.type, message);
 }
 
-async function openRealtimeVoiceTransport({ reconnecting = false } = {}) {
+async function openRealtimeVoiceTransport({ reconnecting = false, reusableLocalStream = null } = {}) {
   if (!window.RTCPeerConnection || !navigator.mediaDevices?.getUserMedia) throw new Error('Live voice is not supported in this browser. Use Speak answer or type instead.');
   const preserveRecordingInput = Boolean(reconnecting && recordingInputBorrowed && isRecordingActive());
-  const reusableLocalStream = preserveRecordingInput ? state.localStream : null;
+  const reconnectStream = preserveRecordingInput ? state.localStream : null;
   try {
     $('#liveVoiceButton').disabled = true;
     $('#liveVoiceButton').setAttribute('aria-busy', 'true');
     setVoiceAnnouncement(reconnecting ? 'Reconnecting live AI voice…' : 'Connecting live AI voice…');
     stopLiveVoice({ preserveLocalStream: preserveRecordingInput });
     try {
-      state.localStream = reusableLocalStream || await navigator.mediaDevices.getUserMedia(microphoneConstraints);
+      state.localStream = reconnectStream || reusableLocalStream || await navigator.mediaDevices.getUserMedia(microphoneConstraints);
       setMicrophoneStatus('available');
     } catch (error) {
       const denied = error?.name === 'NotAllowedError' || error?.name === 'SecurityError';
@@ -2377,9 +2384,25 @@ async function openRealtimeVoiceTransport({ reconnecting = false } = {}) {
     }
     state.peer = new RTCPeerConnection();
     state.peer.ontrack = event => {
-      if (!state.remoteAudio) { state.remoteAudio = document.createElement('audio'); state.remoteAudio.autoplay = true; state.remoteAudio.className = 'hidden'; document.body.appendChild(state.remoteAudio); }
-      state.remoteAudio.srcObject = event.streams[0];
-      attachRecordingRemoteStream(event.streams[0]);
+      const RemoteStreamCtor = window.MediaStream;
+      const remoteStream = event.streams?.[0]
+        || (RemoteStreamCtor && event.track ? new RemoteStreamCtor([event.track]) : null);
+      if (!remoteStream) {
+        markRecordingRemoteUnavailable('AI audio did not arrive from the live voice connection.');
+        return;
+      }
+      if (!state.remoteAudio) {
+        state.remoteAudio = document.createElement('audio');
+        state.remoteAudio.autoplay = true;
+        state.remoteAudio.playsInline = true;
+        state.remoteAudio.setAttribute('playsinline', '');
+        state.remoteAudio.setAttribute('aria-hidden', 'true');
+        state.remoteAudio.className = 'voice-remote-audio';
+        document.body.appendChild(state.remoteAudio);
+      }
+      state.remoteAudio.srcObject = remoteStream;
+      tryPlayRemoteAudio();
+      attachRecordingRemoteStream(remoteStream);
     };
     state.peer.onconnectionstatechange = () => {
       if (['failed', 'disconnected'].includes(state.peer?.connectionState)) {
@@ -2419,6 +2442,17 @@ async function openRealtimeVoiceTransport({ reconnecting = false } = {}) {
     stopLiveVoice({ preserveLocalStream: preserveRecordingInput });
     throw error;
   } finally { $('#liveVoiceButton').disabled = false; $('#liveVoiceButton').setAttribute('aria-busy', 'false'); }
+}
+
+function tryPlayRemoteAudio() {
+  const remoteAudio = state.remoteAudio;
+  if (!remoteAudio?.srcObject || typeof remoteAudio.play !== 'function') return;
+  try {
+    const playback = remoteAudio.play();
+    playback?.catch?.(() => setVoiceAnnouncement('Live voice is connected. Tap the page once to enable audio playback.'));
+  } catch {
+    setVoiceAnnouncement('Live voice is connected. Tap the page once to enable audio playback.');
+  }
 }
 
 async function connectLiveVoice() {
@@ -2720,6 +2754,8 @@ $('#reviewTranscriptToggle').addEventListener('change', event => {
     : 'Finalized voice transcripts appear here before analysis when review before sending is on.');
 });
 $('#liveVoiceButton').addEventListener('click', connectLiveVoice);
+window.addEventListener('pointerdown', tryPlayRemoteAudio, { passive: true });
+window.addEventListener('keydown', tryPlayRemoteAudio);
 $('#materialQuestionForm').addEventListener('submit', event => { event.preventDefault(); askMaterialQuestion(); });
 $('#sourceList').addEventListener('click', async event => {
   const button = event.target.closest('.source-remove');

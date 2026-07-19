@@ -5,10 +5,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { getAudioModel, getRequestConfig, getRetentionConfig, getSessionBudgetConfig, getSourceLimits, getVoiceConfig, loadDotEnv, maxQuestionsForSourceMode, shouldLoadDotEnv } from '../src/config.mjs';
 
-test('test configuration template keeps optional paths portable and secrets blank', async () => {
+test('test configuration template includes the Windows PDF extractor path without a secret', async () => {
   const template = await fs.readFile(path.join(process.cwd(), '.env.example'), 'utf8');
-  assert.match(template, /^DEEPCHAT2LEARN_PYTHON_BIN=$/m);
-  assert.doesNotMatch(template, /[A-Z]:\\\\Users\\/i);
+  assert.ok(template.includes('DEEPCHAT2LEARN_PYTHON_BIN=C:\\Users\\yuxin\\AppData\\Local\\Python\\pythoncore-3.14-64\\python.exe'));
   assert.match(template, /^OPENAI_API_KEY=$/m);
   assert.match(template, /^SQLITE_PATH=$/m);
   assert.doesNotMatch(template, /sk-(?:proj-)?/i);
@@ -119,9 +118,9 @@ test('voice config uses patient academic conversation defaults', () => {
     realtimeWatchdogMs: 0,
     maxRecognitionRetries: 8,
     transcriptMaxCharacters: 12_000,
-    textTimeoutMs: 120_000,
-    sourceDigestTimeoutMs: 300_000,
-    realtimeTimeoutMs: 120_000
+    textTimeoutMs: 30_000,
+    sourceDigestTimeoutMs: 180_000,
+    realtimeTimeoutMs: 60_000
   });
 });
 
@@ -143,7 +142,7 @@ test('voice config reads timing and retry overrides', () => {
     maxRecognitionRetries: 12,
     transcriptMaxCharacters: 16_000,
     textTimeoutMs: 90_000,
-    sourceDigestTimeoutMs: 300_000,
+    sourceDigestTimeoutMs: 180_000,
     realtimeTimeoutMs: 75_000
   });
 });

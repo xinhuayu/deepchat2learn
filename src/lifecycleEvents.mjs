@@ -22,16 +22,6 @@ function normalizeCount(value) {
   return Number.isInteger(count) && count >= 0 ? count : null;
 }
 
-function normalizeDuration(value) {
-  const duration = Number(value);
-  return Number.isFinite(duration) && duration >= 0 ? Math.min(Math.round(duration), 86_400_000) : null;
-}
-
-function normalizeIdList(value) {
-  if (!Array.isArray(value)) return [];
-  return value.map(item => normalizeText(item)).filter(Boolean).slice(0, 10);
-}
-
 function normalizeTimestamp(value) {
   const candidate = value ? new Date(value) : new Date();
   return Number.isNaN(candidate.getTime()) ? new Date().toISOString() : candidate.toISOString();
@@ -51,28 +41,14 @@ function normalizeEvent(input) {
   const mode = normalizeText(source.mode);
   const status = normalizeText(source.status);
   const errorCode = normalizeText(source.errorCode);
-  const modelStatus = normalizeText(source.modelStatus);
-  const fallbackReason = normalizeText(source.fallbackReason);
-  const agendaStage = normalizeText(source.agendaStage);
-  const idempotencyHash = normalizeText(source.idempotencyHash);
   const sourceCount = normalizeCount(source.sourceCount);
   const transcriptLength = normalizeCount(source.transcriptLength);
-  const retrievedChunkCount = normalizeCount(source.retrievedChunkCount);
-  const requestDurationMs = normalizeDuration(source.requestDurationMs);
-  const retrievedChunkIds = normalizeIdList(source.retrievedChunkIds);
   if (sessionId) normalized.sessionId = sessionId;
   if (mode) normalized.mode = mode;
   if (status) normalized.status = status;
   if (sourceCount !== null) normalized.sourceCount = sourceCount;
   if (transcriptLength !== null) normalized.transcriptLength = transcriptLength;
   if (errorCode) normalized.errorCode = errorCode;
-  if (modelStatus) normalized.modelStatus = modelStatus;
-  if (fallbackReason) normalized.fallbackReason = fallbackReason;
-  if (agendaStage) normalized.agendaStage = agendaStage;
-  if (idempotencyHash) normalized.idempotencyHash = idempotencyHash;
-  if (retrievedChunkCount !== null) normalized.retrievedChunkCount = retrievedChunkCount;
-  if (requestDurationMs !== null) normalized.requestDurationMs = requestDurationMs;
-  if (retrievedChunkIds.length) normalized.retrievedChunkIds = retrievedChunkIds;
   return normalized;
 }
 

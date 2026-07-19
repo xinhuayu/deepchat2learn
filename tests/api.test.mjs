@@ -30,56 +30,6 @@ async function withEnv(overrides, run) {
   }
 }
 
-test('static PNG assets have an image content type', async () => {
-  await withServer(async base => {
-    const response = await fetch(`${base}/brand-logo.png`);
-    assert.equal(response.status, 200);
-    assert.match(response.headers.get('content-type') || '', /^image\/png(?:;|$)/i);
-  });
-});
-
-test('health reports unavailable realtime after a sanitized initialization failure', async () => {
-  const entries = [];
-  const realtimeSessionFactory = async () => {
-    const error = new HttpError(502, 'Live AI voice could not be initialized. Continue by typing.', 'REALTIME_INIT_FAILED');
-    error.details = { upstreamStatus: 429, providerCode: 'rate_limit_exceeded', rawProviderMessage: 'sk-live-secret-value' };
-    throw error;
-  };
-  const server = createServer({ realtimeSessionFactory, logger: { info: entry => entries.push(entry) } });
-  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-  try {
-    const address = server.address();
-    const base = `http://${address.address}:${address.port}`;
-    const created = await (await fetch(`${base}/api/sessions`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ topic: 'Realtime availability' })
-    })).json();
-    const failed = await fetch(`${base}/api/realtime/session`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-session-token': created.token },
-      body: JSON.stringify({ sessionId: created.session.id })
-    });
-    assert.equal(failed.status, 502);
-    const failedBody = await failed.json();
-    assert.equal(failedBody.error.upstreamStatus, 429);
-    assert.equal(failedBody.error.providerCode, 'rate_limit_exceeded');
-    assert.doesNotMatch(JSON.stringify(failedBody), /sk-live-secret-value/);
-
-    const health = await (await fetch(`${base}/api/health`)).json();
-    assert.equal(health.connection.realtimeVoice, 'unavailable');
-    assert.equal(health.connection.realtimeLastError, 'REALTIME_INIT_FAILED');
-    assert.equal(health.connection.realtimeUpstreamStatus, 429);
-    const failureLog = entries.find(entry => entry.path === '/api/realtime/session');
-    assert.equal(failureLog?.errorCode, 'REALTIME_INIT_FAILED');
-    assert.equal(failureLog?.realtimeUpstreamStatus, 429);
-    assert.equal(failureLog?.realtimeProviderCode, 'rate_limit_exceeded');
-    assert.doesNotMatch(JSON.stringify(failureLog), /sk-live-secret-value/);
-  } finally {
-    await new Promise(resolve => server.close(resolve));
-  }
-});
-
 test('failed initial question generation does not orphan a created session', async () => {
   const store = new InMemoryStore();
   const server = createServer({ store, coach: { initialQuestion: async () => { throw new Error('model unavailable'); } } });
@@ -410,9 +360,9 @@ test('health endpoint reports service readiness without a session token', async 
         realtimeWatchdogMs: 0,
         maxRecognitionRetries: 8,
         transcriptMaxCharacters: 12_000,
-        textTimeoutMs: 120_000,
-        sourceDigestTimeoutMs: 300_000,
-        realtimeTimeoutMs: 120_000
+        textTimeoutMs: 30_000,
+        sourceDigestTimeoutMs: 180_000,
+        realtimeTimeoutMs: 60_000
       },
       sourceLimits: {
         maxFiles: 10,
@@ -833,7 +783,7 @@ test('voice turn endpoint answers a spoken material question with the approved r
     const body = await answer.json();
     assert.equal(body.turn.status, 'answered');
     assert.equal(body.turn.intent, 'source_question');
-    assert.equal(body.answerSpeechText, 'The paper says spaced practice improves long-term retention. This is a study strategy claim. Would you like the page reference too?');
+    assert.equal(body.answerSpeechText, 'The paper says spaced practice improves long-term retention. Would you like the page reference too?');
     assert.deepEqual(body.knowledgeLayers, ['source', 'llm']);
     assert.equal(body.citations[0].sourceId, sourceBody.source.id);
     assert.equal(body.confidence, 'high');
@@ -858,8 +808,8 @@ test('voice turn endpoint answers a spoken material question with the approved r
         transcriptReviewed: true
       })
     });
-    assert.equal(replay.status, 409);
-    assert.equal((await replay.json()).error.code, 'VOICE_IDEMPOTENCY_CONFLICT');
+    assert.equal(replay.status, 200);
+    assert.deepEqual(await replay.json(), body);
     assert.equal(store.get(created.session.id).voiceTurns.length, 1);
     assert.equal(store.get(created.session.id).modelTokensUsed, modelTokensAfterFirstTurn);
   } finally {
@@ -867,7 +817,7 @@ test('voice turn endpoint answers a spoken material question with the approved r
   }
 });
 
-test('source questions use extracted material while the consolidated digest is still building', async () => {
+test('source questions stay conversational until the consolidated digest is ready', async () => {
   await withServer(async base => {
     const create = await fetch(`${base}/api/sessions`, {
       method: 'POST',
@@ -889,33 +839,25 @@ test('source questions use extracted material while the consolidated digest is s
     });
     assert.equal(answer.status, 200);
     const body = await answer.json();
-    assert.equal(body.mode, 'source');
-    assert.ok(body.sourceGroundedClaims.length > 0);
-    assert.match(body.sourceDigestStatus, /fuller cross-source overview/i);
+    assert.equal(body.mode, 'general');
+    assert.equal(body.sourceGroundedClaims.length, 0);
+    assert.match(body.sourceDigestStatus, /not ready yet/i);
   });
 });
 
-test('voice source questions use extracted material while the consolidated digest is still building', async () => {
+test('voice source questions stay conversational until the consolidated digest is ready', async () => {
   const coach = {
     initialQuestion: async () => 'What is the main claim?',
-    composeBlendedAnswer: async ({ retrievedChunks }) => {
-      const chunk = retrievedChunks[0];
-      const excerpt = chunk.text;
-      return {
-        answerText: 'The paper says retrieval practice improves learning outcomes.',
-        answerSpeechText: 'The paper says retrieval practice improves learning outcomes.',
-        sourceClaims: [{ claim: excerpt, chunkId: chunk.id, citationExcerpt: excerpt }],
-        llmBackground: [],
-        discussionPoints: [],
-        suggestions: [],
-        externalClaims: [],
-        citations: [{ sourceId: chunk.sourceId, chunkId: chunk.id, excerpt }],
-        externalCitations: [],
-        confidence: 'high',
-        uncertainty: [],
-        conflicts: [],
-        followUp: 'What outcome did the paper emphasize?'
-      };
+    generalAnswer: async () => ({
+      mode: 'general',
+      answer: 'I can still help in general terms while your materials finish processing.',
+      sourceGroundedClaims: [],
+      additionalContext: [],
+      unsupportedOrUnresolved: [],
+      confidence: 'low'
+    }),
+    composeBlendedAnswer: async () => {
+      throw new Error('composeBlendedAnswer should not run before the consolidated digest is ready.');
     }
   };
   const server = createServer({ coach });
@@ -948,9 +890,9 @@ test('voice source questions use extracted material while the consolidated diges
     });
     assert.equal(answer.status, 200);
     const body = await answer.json();
-    assert.deepEqual(body.knowledgeLayers, ['source']);
-    assert.match(body.sourceDigestStatus, /fuller cross-source overview/i);
-    assert.equal(body.citations.length, 1);
+    assert.deepEqual(body.knowledgeLayers, ['llm']);
+    assert.match(body.sourceDigestStatus, /not ready yet/i);
+    assert.equal(body.citations.length, 0);
   } finally {
     await new Promise(resolve => server.close(resolve));
   }
@@ -1179,8 +1121,8 @@ test('duplicate voice-turn replay after interruption cannot overwrite the newer 
         transcriptReviewed: false
       })
     });
-    assert.equal(replay.status, 409);
-    assert.equal((await replay.json()).error.code, 'VOICE_IDEMPOTENCY_CONFLICT');
+    assert.equal(replay.status, 200);
+    assert.deepEqual(await replay.json(), firstBody);
 
     const sessionResponse = await fetch(`${base}/api/sessions/${created.session.id}`, {
       headers: { 'x-session-token': created.token }
@@ -1322,7 +1264,6 @@ test('voice control routes update server state without deleting the latest trans
     const interruptBody = await interrupt.json();
     assert.equal(interruptBody.state, 'listening');
     assert.equal(interruptBody.turn.id, turnBody.turn.id);
-    assert.equal(interruptBody.turn.status, 'interrupted');
 
     const events = await fetch(`${base}/api/voice/sessions/${created.session.id}/events`, {
       headers: { 'x-session-token': created.token }
@@ -1782,7 +1723,7 @@ test('digest routes expose processing status while a digest build is in flight',
   }
 });
 
-test('digest routes keep an extractive source digest ready when model consolidation fails', async () => {
+test('digest routes return structured failed status with error details when digest generation fails', async () => {
   const coach = {
     initialQuestion: async () => 'What is the main idea?',
     digestSource: async source => ({ digestText: source.text, keyPoints: [], openQuestions: [] }),
@@ -1815,17 +1756,16 @@ test('digest routes keep an extractive source digest ready when model consolidat
     });
     assert.equal(built.status, 200);
     const builtBody = await built.json();
-    assert.equal(builtBody.status, 'ready');
-    assert.equal(builtBody.digest.mode, 'extractive');
-    assert.match(builtBody.digest.warnings.join(' '), /AI digest unavailable/i);
+    assert.equal(builtBody.status, 'failed');
+    assert.equal(builtBody.error.code, 'DIGEST_MODEL_FAILED');
 
     const status = await fetch(`${base}/api/sessions/${created.session.id}/sources/digest`, {
       headers: { 'x-session-token': created.token }
     });
     assert.equal(status.status, 200);
     const statusBody = await status.json();
-    assert.equal(statusBody.status, 'ready');
-    assert.equal(statusBody.digest.mode, 'extractive');
+    assert.equal(statusBody.status, 'failed');
+    assert.equal(statusBody.error.code, 'DIGEST_MODEL_FAILED');
   } finally {
     await new Promise(resolve => server.close(resolve));
   }
@@ -2153,9 +2093,9 @@ test('health endpoint reports privacy defaults and audio is never stored', async
         realtimeWatchdogMs: 0,
         maxRecognitionRetries: 8,
         transcriptMaxCharacters: 12_000,
-        textTimeoutMs: 120_000,
-        sourceDigestTimeoutMs: 300_000,
-        realtimeTimeoutMs: 120_000
+        textTimeoutMs: 30_000,
+        sourceDigestTimeoutMs: 180_000,
+        realtimeTimeoutMs: 60_000
       },
       sourceLimits: {
         maxFiles: 10,

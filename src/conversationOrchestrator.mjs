@@ -1,10 +1,8 @@
-import { buildSessionSummary, countCompletedTurns, deriveSourceDigestStatus, ensureSourceContract, HttpError, sourceHasUsableMaterial, sourceReadyForGroundedAnswers } from './store.mjs';
-import { answerVoiceTurn as defaultAnswerTurn, buildConversationHistory, detectVoiceIntent } from './voiceSession.mjs';
+import { buildSessionSummary, countCompletedTurns, deriveSourceDigestStatus, ensureSourceContract, HttpError, sourceReadyForGroundedAnswers } from './store.mjs';
+import { answerVoiceTurn as defaultAnswerTurn } from './voiceSession.mjs';
 import { resolveSkillSelection as defaultResolveSkillSelection } from './skillDetection.mjs';
 import { getDigestStatus as defaultReadDigestStatus } from './sourceKnowledge.mjs';
-import { cleanVoiceTranscript } from './voiceTranscript.mjs';
 import { maxQuestionsForSourceMode } from './config.mjs';
-import { createConversationAgenda } from './conversationAgenda.mjs';
 
 const DEFAULT_MAX_ANSWER_CHARACTERS = Number(process.env.MAX_ANSWER_CHARACTERS) || 12_000;
 const DEFAULT_MAX_QUESTION_CHARACTERS = Number(process.env.MAX_QUESTION_CHARACTERS) || 2_000;
@@ -255,20 +253,11 @@ async function handlePracticeAnswer({ session, payload, store, coach, skillRegis
   assertSessionCanAnswer(session, store);
   ensureTurnBudget(session);
   consumeModelBudget(session, session.topic, session.currentQuestion, payload.answer, session.sources.map(source => source.name));
-  const conversationHistory = buildConversationHistory(session, { limit: 3 });
-  const agenda = createConversationAgenda({
-    completedTurns: session.turns.length,
-    currentQuestion: session.currentQuestion,
-    recentQuestions: session.turns.map(turn => turn.question)
-  });
   const feedback = await coach.evaluateAnswer({
     topic: session.topic,
     question: session.currentQuestion,
     answer: payload.answer.trim(),
     turnIndex: session.turns.length,
-    conversationTurnCount: session.turns.length,
-    conversationHistory,
-    agenda,
     feedbackStyle: session.feedbackStyle,
     sources: session.sources,
     skillProfile: skillRegistry.get('academic-conversation') || skillRegistry.get(session.conversationSkillId || session.activeSkillId)
@@ -305,12 +294,7 @@ export async function handleVoiceTurn({
   const normalizedIdempotencyKey = typeof payload.idempotencyKey === 'string' ? payload.idempotencyKey.trim() : '';
   if (normalizedIdempotencyKey && store?.getVoiceTurnReplay) {
     const replay = store.getVoiceTurnReplay(session, normalizedIdempotencyKey);
-    if (replay) {
-      if (cleanVoiceTranscript(payload.transcript) !== String(replay.turn?.transcript || '').trim()) {
-        throw new HttpError(409, 'This idempotency key belongs to a different voice turn. Start a new turn with a new key.', 'VOICE_IDEMPOTENCY_CONFLICT');
-      }
-      return { ...replay, done: currentSessionTurnCount(session) >= session.questionLimit };
-    }
+    if (replay) return { ...replay, done: currentSessionTurnCount(session) >= session.questionLimit };
   }
   if (typeof payload.transcript !== 'string' || payload.transcript.trim().length < 1) {
     throw new HttpError(400, 'Add a transcript before submitting.', 'TRANSCRIPT_REQUIRED');
@@ -321,16 +305,15 @@ export async function handleVoiceTurn({
   }
   assertSessionCanAnswer(session, store);
   ensureTurnBudget(session);
-  const detectedIntent = detectVoiceIntent({ session, transcript: payload.transcript, intentHint: null });
   refreshSkillSelection(session, skillRegistry, payload.transcript, resolveSkillSelection);
-  if (detectedIntent !== 'close') {
-    consumeModelBudget(session, session.topic, session.currentQuestion, payload.transcript, session.sourceDigest, session.sources.map(source => source.name));
-  }
+  consumeModelBudget(session, session.topic, session.currentQuestion, payload.transcript, session.sourceDigest, session.sources.map(source => source.name));
   session.voiceState = payload.transcriptReviewed ? 'retrieving' : 'finalizing_transcript';
   session.voiceStateUpdatedAt = new Date().toISOString();
-  const externalResearch = detectedIntent === 'close'
-    ? null
-    : await lookupExternalResearch({ session, query: payload.transcript, researchAdapter });
+  const externalResearch = await lookupExternalResearch({
+    session,
+    query: payload.transcript,
+    researchAdapter
+  });
   const result = await answerTurn({
     session,
     transcript: payload.transcript,
@@ -344,10 +327,8 @@ export async function handleVoiceTurn({
     inputMode: 'voice',
     intentHint: null
   });
-  const done = Boolean(result.closeRequested) || currentSessionTurnCount(session) >= session.questionLimit;
-  if (result.closeRequested) {
-    session.status = 'ready_to_complete';
-  } else if (done) {
+  const done = currentSessionTurnCount(session) >= session.questionLimit;
+  if (done) {
     session.status = 'ready_to_complete';
   } else if (result.feedback?.nextQuestion) {
     session.currentQuestion = result.feedback.nextQuestion;
@@ -377,9 +358,6 @@ export async function handleTypedQuestion({
   if (idempotencyKey && store?.getVoiceTurnReplay) {
     const replay = store.getVoiceTurnReplay(session, idempotencyKey);
     if (replay) {
-      if (String(payload.question).trim() !== String(replay.turn?.transcript || '').trim()) {
-        throw new HttpError(409, 'This idempotency key belongs to a different question. Start a new turn with a new key.', 'VOICE_IDEMPOTENCY_CONFLICT');
-      }
       return {
         ...replay,
         done: currentSessionTurnCount(session) >= session.questionLimit,
@@ -389,15 +367,14 @@ export async function handleTypedQuestion({
   }
   assertSessionCanAnswer(session, store);
   ensureTurnBudget(session);
-  const mode = payload.mode === 'source' ? 'source_question' : 'general_question';
-  const detectedIntent = detectVoiceIntent({ session, transcript: payload.question, intentHint: mode });
   refreshSkillSelection(session, skillRegistry, payload.question, resolveSkillSelection);
-  if (detectedIntent !== 'close') {
-    consumeModelBudget(session, session.topic, payload.question, session.sourceDigest, session.sources.map(source => source.name));
-  }
-  const externalResearch = detectedIntent === 'close'
-    ? null
-    : await lookupExternalResearch({ session, query: payload.question, researchAdapter });
+  consumeModelBudget(session, session.topic, payload.question, session.sourceDigest, session.sources.map(source => source.name));
+  const mode = payload.mode === 'source' ? 'source_question' : 'general_question';
+  const externalResearch = await lookupExternalResearch({
+    session,
+    query: payload.question,
+    researchAdapter
+  });
   const result = await answerTurn({
     session,
     transcript: payload.question.trim(),
@@ -411,7 +388,7 @@ export async function handleTypedQuestion({
     inputMode: 'typed',
     intentHint: mode
   });
-  const done = Boolean(result.closeRequested) || currentSessionTurnCount(session) >= session.questionLimit;
+  const done = currentSessionTurnCount(session) >= session.questionLimit;
   if (done) session.status = 'ready_to_complete';
   store.save(session);
   const legacy = translateLegacyQuestionAnswer(result);
@@ -466,11 +443,6 @@ export function translateLegacyQuestionAnswer(result) {
 export function sourceProcessingMessage(session) {
   if (!session?.sources?.length) return '';
   if (session.digestStatus === 'failed') return 'One or more materials failed to finish processing, so grounded answers may be incomplete.';
-  if (session.sources.some(sourceHasUsableMaterial)) {
-    return ['queued', 'processing'].includes(session.digestStatus)
-      ? 'Extracted material is ready to discuss. A fuller cross-source overview is still being prepared in the background.'
-      : '';
-  }
   if (session.digestStatus === 'queued' || session.digestStatus === 'processing' || session.sources.some(source => !sourceReadyForGroundedAnswers(source, session.digestStatus))) {
     return 'Your materials are still processing, so grounded answers are not ready yet. You can keep chatting while the digest finishes.';
   }

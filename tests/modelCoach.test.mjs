@@ -7,54 +7,64 @@ import { createCoach } from '../src/fakeCoach.mjs';
 test('model coach source inspection uses the patient shared voice timeout by default', async () => {
   const source = await fs.readFile(new URL('../src/modelCoach.mjs', import.meta.url), 'utf8');
   assert.match(source, /getVoiceConfig\(\)\.textTimeoutMs/);
+  assert.match(source, /sourceDigestTimeoutMs/);
 });
 
-test('model coach gives source digestion its configured longer timeout', async () => {
+test('interactive model requests use bounded output budgets', async () => {
+  let request = null;
   const coach = createModelCoach({
     apiKey: 'test-key',
-    timeoutMs: 5,
-    timeoutByTask: { source_digest: 50 },
-    fetchImpl: async (_url, options) => new Promise((resolve, reject) => {
-      const timer = setTimeout(() => resolve({
-        ok: true,
-        json: async () => ({ output_text: JSON.stringify({
-          digestText: 'The paper reports an association.',
-          keyPoints: [{ text: 'The paper reports an association.', evidence: 'The paper reports an association.' }],
-          openQuestions: []
-        }) })
-      }), 15);
-      options.signal.addEventListener('abort', () => {
-        clearTimeout(timer);
-        reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
-      }, { once: true });
-    })
+    fetchImpl: async (_url, options) => {
+      request = JSON.parse(options.body);
+      return { ok: true, json: async () => ({ output_text: JSON.stringify({ question: 'What is the main question?' }) }) };
+    }
   });
 
-  const digest = await coach.digestSource({
-    id: 'source-1',
-    name: 'paper.txt',
-    text: 'The paper reports an association.'
-  });
-  assert.equal(digest.mode, 'model');
+  await coach.initialQuestion({ topic: 'A research paper' });
+
+  assert.equal(request.max_output_tokens, 160);
 });
 
-test('model failures retain only safe upstream diagnostics', async () => {
+test('practice coaching uses a smaller output budget for concise spoken feedback', async () => {
+  let request = null;
   const coach = createModelCoach({
     apiKey: 'test-key',
-    fetchImpl: async () => ({
-      ok: false,
-      status: 429,
-      json: async () => ({ error: { code: 'rate_limit_exceeded', message: 'secret upstream detail' } })
-    })
+    fetchImpl: async (_url, options) => {
+      request = JSON.parse(options.body);
+      return { ok: true, json: async () => ({ output_text: JSON.stringify({
+        strengths: ['Clear point.', 'Relevant detail.'],
+        improvement: 'Add one example.',
+        exampleAnswer: 'A concise example answer.',
+        scores: { clarity: 4, relevance: 4, structure: 3, completeness: 3, specificity: 3 },
+        evidence: ['Clear point.'],
+        academicAssessment: { label: 'direct', rationale: 'The response addresses the question.' },
+        academicResponse: 'Your answer is relevant.',
+        answerSpeechText: 'Your answer is relevant. Next question: what evidence supports it?',
+        nextQuestion: 'What evidence supports it?'
+      }) }) };
+    }
   });
 
-  await assert.rejects(
-    () => coach.initialQuestion({ topic: 'test' }),
-    error => error.code === 'MODEL_REQUEST_FAILED'
-      && error.details?.upstreamStatus === 429
-      && error.details?.providerCode === 'rate_limit_exceeded'
-      && !JSON.stringify(error.details).includes('secret upstream detail')
-  );
+  await coach.evaluateAnswer({ topic: 'A research paper', question: 'What is the main question?', answer: 'It asks whether the exposure predicts the outcome.' });
+
+  assert.equal(request.text.format.name, 'coaching_feedback');
+  assert.equal(request.max_output_tokens, 500);
+  assert.match(request.instructions, /two or three short sentences|brief spoken/i);
+});
+
+test('source digestion keeps a patient timeout separate from interactive turns', async () => {
+  const coach = createModelCoach({
+    apiKey: 'test-key',
+    timeoutMs: 10,
+    sourceDigestTimeoutMs: 100,
+    fetchImpl: async (_url, options) => {
+      await new Promise(resolve => setTimeout(resolve, 25));
+      return { ok: true, json: async () => ({ output_text: JSON.stringify({ digestText: 'A short digest.', keyPoints: [], openQuestions: [] }) }) };
+    }
+  });
+
+  const result = await coach.digestSource({ id: 'source-1', name: 'paper.txt', text: 'A short source.' });
+  assert.equal(result.digestText, 'A short digest.');
 });
 
 function fakeFetch(_url, options) {
@@ -87,65 +97,6 @@ test('model coach converts structured Responses output into the app contract', a
   assert.equal(grounded.sourceGroundedClaims[0].relevanceScore, null);
 });
 
-test('general answers use a strict provider-compatible JSON schema', async () => {
-  let request;
-  const coach = createModelCoach({
-    apiKey: 'test-key',
-    fetchImpl: async (_url, options) => {
-      request = JSON.parse(options.body);
-      return {
-        ok: true,
-        json: async () => ({ output_text: JSON.stringify({
-          answer: 'A cohort study follows a defined group over time.',
-          sourceGroundedClaims: [],
-          additionalContext: [],
-          unsupportedOrUnresolved: [],
-          confidence: 'medium'
-        }) })
-      };
-    }
-  });
-
-  await coach.generalAnswer('What is a cohort study?');
-
-  const schema = request.text.format.schema;
-  assert.equal(request.text.format.strict, true);
-  assert.equal(schema.properties.sourceGroundedClaims.items.additionalProperties, false);
-  assert.equal(schema.properties.additionalContext.items.additionalProperties, false);
-});
-
-test('practice feedback uses a strict provider-compatible JSON schema', async () => {
-  let request;
-  const coach = createModelCoach({
-    apiKey: 'test-key',
-    fetchImpl: async (_url, options) => {
-      request = JSON.parse(options.body);
-      return { ok: true, json: async () => ({ output_text: JSON.stringify({
-        strengths: ['A clear claim.', 'A relevant detail.'],
-        improvement: 'Explain why the detail matters.',
-        exampleAnswer: 'The design follows participants over time, which establishes temporal order.',
-        scores: { clarity: 4, relevance: 4, structure: 4, completeness: 3, specificity: 4 },
-        evidence: ['The study follows participants over time.'],
-        academicAssessment: { label: 'direct', rationale: 'The answer identifies the design.' },
-        academicResponse: 'A cohort design observes a group over time.',
-        answerSpeechText: 'Good identification of the design. What outcome did the study measure?',
-        nextQuestion: 'What outcome did the study measure?'
-      }) }) };
-    }
-  });
-
-  await coach.evaluateAnswer({
-    topic: 'cohort studies',
-    question: 'What is the design?',
-    answer: 'The study follows participants over time.'
-  });
-
-  const schema = request.text.format.schema;
-  assert.equal(request.text.format.strict, true);
-  assert.equal(schema.required.includes('answerSpeechText'), true);
-  assert.deepEqual(Object.keys(schema.properties).sort(), [...schema.required].sort());
-});
-
 test('practice feedback exposes a bounded spoken response separate from the detailed scorecard', async () => {
   const coach = createModelCoach({ apiKey: 'test-key', fetchImpl: fakeFetch });
   const feedback = await coach.evaluateAnswer({
@@ -155,12 +106,12 @@ test('practice feedback exposes a bounded spoken response separate from the deta
   });
 
   assert.equal(typeof feedback.answerSpeechText, 'string');
-  assert.ok(feedback.answerSpeechText.length <= 420);
+  assert.ok(feedback.answerSpeechText.length <= 600);
   assert.match(feedback.answerSpeechText, /next question|What would you do next/i);
   assert.doesNotMatch(feedback.answerSpeechText, /clarity|relevance|specificity|score/i);
 });
 
-test('ordinary source turns use compact academic dialogue guidance and at most three prior turns', async () => {
+test('ordinary source turns use compact academic dialogue guidance and at most two prior turns', async () => {
   let request = null;
   const coach = createModelCoach({
     apiKey: 'test-key',
@@ -201,95 +152,9 @@ test('ordinary source turns use compact academic dialogue guidance and at most t
 
   assert.ok(request);
   const input = JSON.parse(request.input);
-  assert.equal(input.conversationHistory.length, 3);
+  assert.equal(input.conversationHistory.length, 2);
   assert.match(request.instructions, /academic conversation/i);
   assert.doesNotMatch(request.instructions, /FULL REVIEW GUIDANCE|FULL REVIEW REFERENCE/);
-});
-
-test('academic follow-up prompts retain three complete prior exchanges and the latest response signal', async () => {
-  let request;
-  const coach = createModelCoach({
-    apiKey: 'test-key',
-    fetchImpl: async (_url, options) => {
-      request = JSON.parse(options.body);
-      return { ok: true, json: async () => ({ output_text: JSON.stringify({
-        answerText: 'The result suggests an association.',
-        answerSpeechText: 'The result suggests an association. What limitation should we examine next?',
-        sourceClaims: [], llmBackground: [], discussionPoints: [], suggestions: [], externalClaims: [], citations: [], externalCitations: [],
-        confidence: 'medium', uncertainty: [], conflicts: [], followUp: 'What limitation should we examine next?'
-      }) }) };
-    }
-  });
-
-  await coach.composeBlendedAnswer({
-    userQuestion: 'I think the association may reflect confounding.',
-    currentQuestion: 'What does the main result mean?',
-    sourceDigest: {
-      mainArgument: 'The paper reports an observational association.',
-      keyPoints: [{ text: 'The design cannot fully remove confounding.', evidence: 'confounding', chunkIds: ['paper:1'] }]
-    },
-    retrievedChunks: [{ id: 'paper:1', text: 'The observational design may be affected by confounding.', sourceId: 'paper' }],
-    conversationHistory: Array.from({ length: 6 }, (_, index) => ({
-      question: `Q${index}`, answer: `A${index}`, assistantResponse: `R${index}`, followUp: `F${index}`
-    })),
-    agenda: { currentStage: 'interpretation', nextStage: 'limitations', recentQuestions: ['What does the main result mean?'] },
-    turnRole: 'answer_to_ai', generalKnowledgeAllowed: true
-  });
-
-  const input = JSON.parse(request.input);
-  assert.equal(input.conversationHistory.length, 3);
-  assert.deepEqual(input.conversationHistory[0], { question: 'Q3', answer: 'A3', assistantResponse: 'R3', followUp: 'F3' });
-  assert.match(request.instructions, /latest.*answer|latest.*response/i);
-  assert.match(request.instructions, /specific source idea|source-supported/i);
-  assert.match(request.instructions, /next eligible stage/i);
-});
-
-test('model feedback and source dialogue receive a bounded conversation agenda', async () => {
-  const requests = [];
-  const coach = createModelCoach({
-    apiKey: 'test-key',
-    fetchImpl: async (_url, options) => {
-      const request = JSON.parse(options.body);
-      requests.push(request);
-      const output = request.text.format.name === 'coaching_feedback'
-        ? {
-          strengths: ['A clear answer.', 'A relevant detail.'],
-          improvement: 'Explain the interpretation.',
-          exampleAnswer: 'The result supports the stated conclusion.',
-          scores: { clarity: 4, relevance: 4, structure: 4, completeness: 3, specificity: 3 },
-          evidence: ['The result supports the conclusion.'],
-          academicAssessment: { label: 'direct', rationale: 'The answer addresses the result.' },
-          academicResponse: 'Interpret findings in relation to the research question.',
-          answerSpeechText: 'You identified the result. How should we interpret it?',
-          nextQuestion: 'How should we interpret it?'
-        }
-        : {
-          answerText: 'The source reports a longitudinal cohort design.',
-          answerSpeechText: 'It reports a longitudinal cohort design. What outcome did it measure?',
-          sourceClaims: [], llmBackground: [], discussionPoints: [], suggestions: [], externalClaims: [], citations: [], externalCitations: [],
-          confidence: 'medium', uncertainty: [], conflicts: [], followUp: 'What outcome did it measure?'
-        };
-      return { ok: true, json: async () => ({ output_text: JSON.stringify(output) }) };
-    }
-  });
-  const agenda = { currentStage: 'findings', nextStage: 'interpretation', recentQuestions: ['What did the study find?'] };
-
-  await coach.evaluateAnswer({
-    topic: 'cohort study', question: 'What did the study find?', answer: 'The result supports the conclusion.',
-    conversationTurnCount: 4, conversationHistory: [{ question: 'What did the study find?', answer: 'The result supports the conclusion.' }], agenda
-  });
-  await coach.composeBlendedAnswer({
-    userQuestion: 'What did the paper find?', currentQuestion: 'What did the study find?', turnRole: 'user_question',
-    sourceDigest: null, retrievedChunks: [], conversationHistory: [], conversationTurnCount: 4, agenda,
-    generalKnowledgeAllowed: true, externalResearchResult: { status: 'not_requested', results: [] }
-  });
-
-  const feedbackInput = JSON.parse(requests[0].input);
-  const sourceInput = JSON.parse(requests[1].input);
-  assert.deepEqual(feedbackInput.agenda, agenda);
-  assert.deepEqual(sourceInput.agenda, agenda);
-  assert.match(requests[0].instructions, /next eligible stage|next stage/i);
-  assert.match(requests[1].instructions, /next eligible stage|next stage/i);
 });
 
 test('resilient coach falls back to local academic coaching when the text model fails', async () => {
@@ -495,209 +360,6 @@ test('model coach builds a consolidated digest from source chunks with exact chu
   });
   assert.equal(result.mainArgument, 'The study reports an association.');
   assert.deepEqual(result.keyPoints[0].chunkIds, ['paper-1:chunk:1']);
-});
-
-test('source conversation retains all compact digest points and requests distinct paper coverage', async () => {
-  const requests = [];
-  const coach = createModelCoach({
-    apiKey: 'test-key',
-    fetchImpl: async (_url, options) => {
-      const request = JSON.parse(options.body);
-      requests.push(request);
-      const output = request.text.format.name === 'consolidated_source_digest'
-        ? {
-          mainArgument: 'The paper follows a cohort and reports later health outcomes.',
-          keyPoints: [{ text: 'The paper follows a cohort.', chunkIds: ['paper-1:chunk:1'] }],
-          importantTerms: ['cohort'],
-          evidence: [{ claim: 'The paper follows a cohort.', chunkIds: ['paper-1:chunk:1'] }],
-          conflicts: [], openQuestions: []
-        }
-        : { question: 'What outcome did the researchers measure?' };
-      return { ok: true, json: async () => ({ output_text: JSON.stringify(output) }) };
-    }
-  });
-  const keyPoints = Array.from({ length: 8 }, (_, index) => ({ text: `Distinct paper point ${index + 1}.`, chunkIds: [`paper-1:chunk:${index + 1}`] }));
-
-  await coach.buildConsolidatedDigest({
-    sources: [{ id: 'paper-1', name: 'paper.pdf' }],
-    chunks: [{ id: 'paper-1:chunk:1', sourceId: 'paper-1', text: 'The paper follows a cohort.' }]
-  });
-  await coach.sourceQuestion({
-    topic: 'Discuss the paper', sources: [],
-    sourceDigest: { mainArgument: 'The paper follows a cohort.', keyPoints, importantTerms: [], openQuestions: [] }
-  });
-
-  const digestRequest = requests.find(request => request.text.format.name === 'consolidated_source_digest');
-  const questionRequest = requests.find(request => request.text.format.name === 'source_question');
-  assert.match(digestRequest.instructions, /research question.*design.*population.*measures.*findings.*interpretation.*limitations/i);
-  assert.equal(JSON.parse(questionRequest.input).sourceDigest.keyPoints.length, 8);
-});
-
-test('source answer prompt requires synthesis and direct answers to learner questions', async () => {
-  let request;
-  const coach = createModelCoach({
-    apiKey: 'test-key',
-    fetchImpl: async (_url, options) => {
-      request = JSON.parse(options.body);
-      return { ok: true, json: async () => ({ output_text: JSON.stringify({
-        answerText: 'The study uses a cohort design, which means it follows participants over time to compare later outcomes.',
-        answerSpeechText: 'The study uses a cohort design. Following participants over time helps establish when exposure and outcome occur.',
-        sourceClaims: [{ claim: 'The study follows participants over time.', chunkId: 'paper:1', citationExcerpt: 'The study follows participants over time.' }],
-        llmBackground: [], discussionPoints: ['This design supports temporal ordering but remains vulnerable to confounding.'], suggestions: [],
-        externalClaims: [], citations: [{ sourceId: 'paper', chunkId: 'paper:1', excerpt: 'The study follows participants over time.' }], externalCitations: [],
-        confidence: 'high', uncertainty: [], conflicts: [], followUp: 'What population did the authors study?'
-      }) }) };
-    }
-  });
-
-  await coach.composeBlendedAnswer({
-    userQuestion: 'Why does the study design matter?',
-    currentQuestion: 'What design did the authors use?',
-    turnRole: 'user_question',
-    sourceDigest: { mainArgument: 'The study examines whether an exposure predicts a later outcome.', keyPoints: [{ text: 'The study follows participants over time.', chunkIds: ['paper:1'] }] },
-    retrievedChunks: [{ id: 'paper:1', sourceId: 'paper', sourceName: 'paper.pdf', text: 'The study follows participants over time.', start: 0, end: 46 }],
-    conversationHistory: [],
-    conversationTurnCount: 2,
-    generalKnowledgeAllowed: true,
-    externalResearchResult: { status: 'not_requested', results: [] }
-  });
-
-  assert.match(request.instructions, /answer the user's question directly|directly answer/i);
-  assert.match(request.instructions, /synthesi[sz]|interpret|why it matters/i);
-  assert.match(request.instructions, /Additional context|general knowledge/i);
-  assert.match(request.instructions, /do not merely quote|do not copy|own words/i);
-  assert.match(request.instructions, /new angle|avoid repeating|do not repeat/i);
-  assert.match(request.instructions, /four to six sentences/i);
-  const input = JSON.parse(request.input);
-  assert.equal(input.latestLearnerResponse, 'Why does the study design matter?');
-  assert.equal(input.latestQuestion, 'What design did the authors use?');
-  assert.ok(Array.isArray(input.avoidRepeating));
-});
-
-test('source answers request one revision when the first draft only repeats the digest', async () => {
-  let calls = 0;
-  const coach = createModelCoach({
-    apiKey: 'test-key',
-    fetchImpl: async (_url, options) => {
-      calls += 1;
-      const input = JSON.parse(options.body).input;
-      const answer = calls === 1
-        ? 'The paper studies cognitive decline and later health outcomes.'
-        : 'The paper links cognitive decline with later health outcomes, but the longitudinal design still leaves room for selection and confounding. Participants were followed over time, so the timing of cognition and later outcomes can be compared. The important question is whether decline adds information beyond baseline cognition. In general, this distinction matters because prediction is not the same as demonstrating a causal effect.';
-      return { ok: true, json: async () => ({ output_text: JSON.stringify({
-        answerText: answer,
-        answerSpeechText: answer,
-        sourceClaims: [{ claim: 'The paper studies cognitive decline and later health outcomes.', chunkId: 'paper:1', citationExcerpt: 'The paper studies cognitive decline and later health outcomes.' }],
-        llmBackground: [], discussionPoints: [], suggestions: [], externalClaims: [],
-        citations: [{ sourceId: 'paper', chunkId: 'paper:1', excerpt: 'The paper studies cognitive decline and later health outcomes.' }], externalCitations: [],
-        confidence: 'medium', uncertainty: [], conflicts: [], followUp: 'What did the authors measure?'
-      }) }) };
-    }
-  });
-
-  const result = await coach.composeBlendedAnswer({
-    userQuestion: 'Why does this matter?',
-    currentQuestion: 'What is the paper about?',
-    sourceDigest: { mainArgument: 'The paper studies cognitive decline and later health outcomes.' },
-    retrievedChunks: [{ id: 'paper:1', sourceId: 'paper', sourceName: 'paper.pdf', text: 'The paper studies cognitive decline and later health outcomes.', start: 0, end: 61 }],
-    conversationHistory: [],
-    generalKnowledgeAllowed: true,
-    externalResearchResult: { status: 'not_requested', results: [] }
-  });
-
-  assert.equal(calls, 2);
-  assert.match(result.answerText, /selection|confounding|baseline cognition/i);
-});
-
-test('source answers request a revision when a paraphrase repeats the prior answer', async () => {
-  let calls = 0;
-  const coach = createModelCoach({
-    apiKey: 'test-key',
-    fetchImpl: async (_url, options) => {
-      calls += 1;
-      const answer = calls === 1
-        ? 'The paper examines cognitive decline and later health outcomes in older adults.'
-        : 'The important additional point is that the cohort design supports temporal ordering, but selection into repeated testing may still bias the association.';
-      return { ok: true, json: async () => ({ output_text: JSON.stringify({
-        answerText: answer,
-        answerSpeechText: answer,
-        sourceClaims: [{ claim: 'The study followed participants over time.', chunkId: 'paper:1', citationExcerpt: 'The study followed participants over time.' }],
-        citations: [{ sourceId: 'paper', chunkId: 'paper:1', excerpt: 'The study followed participants over time.' }],
-        llmBackground: [], discussionPoints: [], suggestions: [], externalClaims: [], externalCitations: [],
-        confidence: 'medium', uncertainty: [], conflicts: [], followUp: 'What source-selection issue should we examine next?'
-      }) }) };
-    }
-  });
-
-  const result = await coach.composeBlendedAnswer({
-    userQuestion: 'What else matters?',
-    currentQuestion: 'What is the paper about?',
-    sourceDigest: { mainArgument: 'The research evaluates aging-related outcomes.' },
-    retrievedChunks: [{ id: 'paper:1', sourceId: 'paper', sourceName: 'paper.pdf', text: 'The study followed participants over time.', start: 0, end: 43 }],
-    conversationHistory: [{ assistantResponse: 'The study explores cognitive decline and later health outcomes among older adults.' }],
-    generalKnowledgeAllowed: true,
-    externalResearchResult: { status: 'not_requested', results: [] }
-  });
-
-  assert.equal(calls, 2);
-  assert.match(result.answerText, /temporal ordering|selection/i);
-});
-
-test('source answer fallback identifies model failure without presenting an extractive quote as synthesis', async () => {
-  const coach = createModelCoach({
-    apiKey: 'test-key',
-    fetchImpl: async () => { throw new Error('upstream unavailable'); }
-  });
-  const result = await coach.composeBlendedAnswer({
-    userQuestion: 'Why does the design matter?',
-    currentQuestion: 'What design did the authors use?',
-    sourceDigest: { mainArgument: 'The study follows participants over time to compare later outcomes.' },
-    retrievedChunks: [{
-      id: 'paper:1', sourceId: 'paper', sourceName: 'paper.pdf',
-      text: 'The study follows participants over time to compare later outcomes.', start: 0, end: 70
-    }],
-    conversationHistory: [],
-    generalKnowledgeAllowed: true,
-    externalResearchResult: { status: 'not_requested', results: [] }
-  });
-  assert.equal(result.modelStatus, 'fallback');
-  assert.equal(result.modelFallbackReason, 'MODEL_REQUEST_FAILED');
-  assert.doesNotMatch(result.answerSpeechText, /Your material says:/i);
-  assert.match(result.answerSpeechText, /synthesis|prepared source digest/i);
-});
-
-test('source conversation accepts a per-source digestText and sends a paper-level digest shape', async () => {
-  let request;
-  const coach = createModelCoach({
-    apiKey: 'test-key',
-    fetchImpl: async (_url, options) => {
-      request = JSON.parse(options.body);
-      return { ok: true, json: async () => ({ output_text: JSON.stringify({
-        answerText: 'The paper evaluates a longitudinal association and its later outcomes.',
-        answerSpeechText: 'The paper evaluates a longitudinal association and its later outcomes.',
-        sourceClaims: [], llmBackground: ['A longitudinal design can establish temporal ordering, but not by itself remove confounding.'],
-        discussionPoints: [], suggestions: [], externalClaims: [], citations: [], externalCitations: [],
-        confidence: 'medium', uncertainty: [], conflicts: [], followUp: 'What population did the authors study?'
-      }) }) };
-    }
-  });
-
-  await coach.composeBlendedAnswer({
-    userQuestion: 'What is the paper mainly trying to learn?',
-    currentQuestion: 'What is the paper about?',
-    sourceDigest: {
-      digestText: 'The paper evaluates whether cognitive trajectories predict later health outcomes.',
-      keyPoints: [{ text: 'The study follows participants over time.', chunkIds: ['paper:1'] }]
-    },
-    retrievedChunks: [{ id: 'paper:1', sourceId: 'paper', sourceName: 'paper.pdf', text: 'The study follows participants over time.', start: 0, end: 46 }],
-    conversationHistory: [],
-    generalKnowledgeAllowed: true,
-    externalResearchResult: { status: 'not_requested', results: [] }
-  });
-
-  const input = JSON.parse(request.input);
-  assert.equal(input.sourceDigest.mainArgument, 'The paper evaluates whether cognitive trajectories predict later health outcomes.');
-  assert.equal(input.sourceDigest.keyPoints[0].text, 'The study follows participants over time.');
 });
 
 test('model coach digests later source chunks through staged coverage', async () => {
@@ -962,7 +624,7 @@ test('composeBlendedAnswer blends source evidence with LLM context without custo
       const input = JSON.parse(request.input);
   assert.equal(input.generalKnowledgeAllowed, true);
   assert.match(request.instructions, /one key learning point/i);
-  assert.match(request.instructions, /four to six sentences/i);
+  assert.match(request.instructions, /two to four sentences/i);
   assert.doesNotMatch(request.instructions, /two or three concise discussion points/i);
   assert.doesNotMatch(request.instructions, /one practical suggestion/i);
   assert.match(request.instructions, /plain language/i);
@@ -1110,11 +772,10 @@ test('composeBlendedAnswer falls back safely when answerText or answerSpeechText
     externalResearchResult: { status: 'not_requested', results: [] }
   });
 
-  assert.match(result.answerText, /live synthesis step did not complete/i);
-  assert.doesNotMatch(result.answerSpeechText, /Your material says:/i);
+  assert.match(result.answerText, /Your material says:/);
+  assert.match(result.answerSpeechText, /Your material says:/);
   assert.equal(result.sourceClaims[0].citationExcerpt, 'Spaced practice improves retention.');
-  assert.equal(result.modelStatus, 'fallback');
-  assert.equal(result.modelFallbackReason, 'MODEL_OUTPUT_INVALID');
+  assert.ok(result.uncertainty.some(item => /falling back to a safer extractive answer/i.test(item)));
   assert.equal(result.sourceSupportStatus, 'supported');
 });
 
@@ -1161,36 +822,4 @@ test('composeBlendedAnswer marks unsupported source answers separately from gene
   assert.match(result.answerText, /could not find enough support/i);
   assert.equal(result.sourceSupportStatus, 'not_in_sources');
   assert.equal(result.externalKnowledgeStatus, 'not_requested');
-});
-
-test('composeBlendedAnswer labels uncited model prose as additional context instead of source evidence', async () => {
-  const coach = createModelCoach({
-    apiKey: 'test-key',
-    fetchImpl: async () => ({
-      ok: true,
-      json: async () => ({
-        output_text: JSON.stringify({
-          answerText: 'The paper proves that the intervention eliminates confounding.',
-          answerSpeechText: 'The paper proves that the intervention eliminates confounding.',
-          sourceClaims: [],
-          llmBackground: ['In general, observational adjustment can reduce but not eliminate confounding.'],
-          discussionPoints: [], suggestions: [], externalClaims: [], citations: [], externalCitations: [],
-          confidence: 'medium', uncertainty: [], conflicts: [], followUp: 'What assumption should we examine?'
-        })
-      })
-    })
-  });
-
-  const result = await coach.composeBlendedAnswer({
-    userQuestion: 'Does the paper establish that confounding is eliminated?',
-    sourceDigest: { mainArgument: 'The paper reports an observational association.', keyPoints: [], conflicts: [], openQuestions: [] },
-    retrievedChunks: [{ id: 'source-1:chunk:1', sourceId: 'source-1', sourceName: 'paper.pdf', text: 'The study reports an observational association.', start: 0, end: 48 }],
-    conversationHistory: [],
-    generalKnowledgeAllowed: true,
-    externalResearchResult: { status: 'not_requested', results: [] }
-  });
-
-  assert.equal(result.sourceSupportStatus, 'not_in_sources');
-  assert.ok(result.uncertainty.some(item => /not directly support|source evidence/i.test(item)));
-  assert.deepEqual(result.llmBackground, ['In general, observational adjustment can reduce but not eliminate confounding.']);
 });

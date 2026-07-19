@@ -1,5 +1,4 @@
 import { locateEvidence } from './evidence.mjs';
-import { createConversationAgenda } from './conversationAgenda.mjs';
 
 function clamp(value) {
   return Math.max(1, Math.min(5, value));
@@ -29,16 +28,6 @@ function buildAcademicResponse({ topic, answer, assessmentLabel }) {
   return `Academic connection: your response addresses ${answerAnchor(answer)} and relates it to ${topic}.`;
 }
 
-function questionForStage(stage, topic, { source = false, sourceCount = 0 } = {}) {
-  if (stage === 'orientation') return source ? (sourceCount > 1 ? 'What are these materials mainly about?' : 'What is this paper mainly about?') : `What is the main research question or idea about ${topic}?`;
-  if (stage === 'design') return source ? 'What study design or approach does the material use?' : 'What approach or example should we examine next?';
-  if (stage === 'population') return source ? 'Who is the target population or sample in this material?' : `What population, participants, or case group matters most for ${topic}?`;
-  if (stage === 'measures') return source ? 'What key concept, variable, or measure should we clarify?' : `What key concept, variable, or measure matters most for ${topic}?`;
-  if (stage === 'findings') return source ? 'What evidence or result matters most?' : `What result or evidence best supports the main idea about ${topic}?`;
-  if (stage === 'interpretation') return source ? 'How should we interpret that result?' : `How should we interpret that evidence about ${topic}?`;
-  return source ? 'What limitation or implication should we discuss next?' : `What limitation or implication of ${topic} should we examine next?`;
-}
-
 export function createCoach() {
   return {
     initialQuestion({ topic, sourceMode = 'none', sources = [], sourceDigest = null }) {
@@ -46,11 +35,16 @@ export function createCoach() {
       return `What is the main research question or idea you want to explore about "${topic}"?`;
     },
 
-    nextQuestion({ topic, sources = [], conversationHistory = [], conversationTurnCount = null }) {
-      const completedTurns = Number.isInteger(conversationTurnCount)
-        ? conversationTurnCount
-        : Math.max(0, (Array.isArray(conversationHistory) ? conversationHistory.length : 0) - 1);
-      return questionForStage(createConversationAgenda({ completedTurns }).currentStage, topic, { source: sources.length > 0, sourceCount: sources.length });
+    nextQuestion({ topic, sources = [], conversationHistory = [] }) {
+      const stage = Array.isArray(conversationHistory) ? conversationHistory.length : 0;
+      if (stage <= 1) return 'What is the main research question or problem here?';
+      if (stage === 2) return 'What study design or approach did the researchers use?';
+      if (stage === 3) return 'Who is the target population or sample in this study?';
+      if (stage === 4) return 'What key concept, variable, or measure should we understand next?';
+      if (stage === 5) return 'What result or piece of evidence seems most important?';
+      if (stage === 6) return 'How should we interpret that result?';
+      if (sources.length) return 'What limitation or alternative explanation should we consider next?';
+      return `What limitation or implication of ${topic} should we examine next?`;
     },
 
     evaluateAnswer({ topic, question, answer, turnIndex, feedbackStyle = 'supportive' }) {
@@ -87,11 +81,10 @@ export function createCoach() {
         rationale: 'Your answer does not yet address the question or topic closely enough.'
       };
       const anchor = answerAnchor(answer);
-      const nextAgenda = createConversationAgenda({ completedTurns: Number(turnIndex || 0) + 1, currentQuestion: question });
       const nextQuestion = count < 8
         ? `What example or detail could you add about ${anchor}?`
         : academicAssessment.label === 'direct' && count >= 18
-          ? questionForStage(nextAgenda.currentStage, topic)
+          ? `What is another important aspect of ${topic} that we should examine next?`
         : academicAssessment.label === 'direct'
           ? `What evidence or example would strengthen your point about ${anchor}?`
           : academicAssessment.label === 'partial'
@@ -137,11 +130,15 @@ export function createCoach() {
       };
     },
 
-    sourceQuestion({ sources, conversationHistory = null, conversationTurnCount = null, skillProfile = null }) {
-      if (Number.isInteger(conversationTurnCount) || Array.isArray(conversationHistory)) {
-        const completedTurns = Number.isInteger(conversationTurnCount) ? conversationTurnCount : Math.max(0, conversationHistory.length - 1);
-        return questionForStage(createConversationAgenda({ completedTurns }).currentStage, '', { source: true, sourceCount: sources.length });
-      }
+    sourceQuestion({ sources, conversationHistory, skillProfile = null }) {
+      const stage = Array.isArray(conversationHistory) ? conversationHistory.length : null;
+      if (stage !== null && stage <= 1) return sources.length > 1 ? 'What are these materials mainly about?' : 'What is this paper mainly about?';
+      if (stage !== null && stage === 2) return 'What study design or approach does the material use?';
+      if (stage !== null && stage === 3) return 'Who is the target population or sample in this material?';
+      if (stage !== null && stage === 4) return 'What key concept or measure should we clarify?';
+      if (stage !== null && stage === 5) return 'What evidence or result matters most?';
+      if (stage !== null && stage === 6) return 'What interpretation should we discuss next?';
+      if (stage !== null && stage >= 7) return 'What limitation or implication should we discuss next?';
       if (skillProfile?.id === 'epi-research') {
         if (sources.length > 1) return 'How do these studies differ in design, target population, and main estimand, and which assumptions matter most for comparing them?';
         return 'What are this study\'s target population, design, main estimand, and most important validity assumption?';

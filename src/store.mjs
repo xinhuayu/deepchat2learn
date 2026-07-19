@@ -31,16 +31,6 @@ export function sourceReadyForGroundedAnswers(source, sessionDigestStatus = null
   return sessionDigestStatus === 'ready' && source?.status === 'ready';
 }
 
-export function sourceHasUsableMaterial(source) {
-  if (!source || source.status === 'failed') return false;
-  if (Array.isArray(source.chunks) && source.chunks.some(chunk => String(chunk?.text || '').trim())) return true;
-  const digest = source.digest;
-  return Boolean(
-    String(digest?.digestText || digest?.mainArgument || '').trim()
-    || (Array.isArray(digest?.keyPoints) && digest.keyPoints.length)
-  );
-}
-
 export function deriveSourceDigestStatus(source, sessionDigestStatus = null) {
   if (source?.status === 'failed' || sessionDigestStatus === 'failed') return 'failed';
   if (sourceReadyForGroundedAnswers(source, sessionDigestStatus)) return 'ready';
@@ -67,7 +57,7 @@ export function ensureSourceContract(source, sessionDigestStatus = null) {
 export function countCompletedTurns(session) {
   const typedTurns = Array.isArray(session?.turns) ? session.turns.length : 0;
   const answeredVoiceTurns = Array.isArray(session?.voiceTurns)
-    ? session.voiceTurns.filter(turn => (turn?.status === 'answered' || (turn?.status === 'interrupted' && Boolean(turn?.answerText))) && !['control', 'new_question', 'close'].includes(turn?.intent)).length
+    ? session.voiceTurns.filter(turn => turn?.status === 'answered' && !['control', 'new_question'].includes(turn?.intent)).length
     : 0;
   return typedTurns + answeredVoiceTurns;
 }
@@ -120,7 +110,7 @@ function practiceFeedbackEntries(session) {
 
 function sourceConversationTurns(session) {
   return (Array.isArray(session?.voiceTurns) ? session.voiceTurns : [])
-    .filter(turn => turn?.status === 'answered' && !['control', 'new_question', 'close'].includes(turn?.intent));
+    .filter(turn => turn?.status === 'answered' && !['control', 'new_question'].includes(turn?.intent));
 }
 
 function legacyNextPractice(session, turnCount) {

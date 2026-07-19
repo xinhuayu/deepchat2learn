@@ -1,23 +1,16 @@
 import crypto from 'node:crypto';
-import { HttpError, sourceHasUsableMaterial } from './store.mjs';
+import { HttpError } from './store.mjs';
 import { retrieveSourceChunks } from './sourceKnowledge.mjs';
 import { validateAnswerEvidence } from './evidence.mjs';
-import { createConversationAgenda } from './conversationAgenda.mjs';
-import { cleanVoiceTranscript } from './voiceTranscript.mjs';
 
 const INPUT_MODES = new Set(['voice', 'typed']);
 const KNOWLEDGE_LAYERS = new Set(['source', 'llm', 'external']);
 const CONFIDENCE_LEVELS = new Set(['low', 'medium', 'high']);
-const MODEL_STATUSES = new Set(['generated', 'fallback']);
 const CONTROL_TRANSCRIPTS = new Set(['stop', 'pause', 'repeat', 'skip', 'continue']);
-const SUPPORTED_INTENTS = new Set(['coaching', 'source_question', 'source_answer', 'general_question', 'control', 'new_question', 'close']);
+const SUPPORTED_INTENTS = new Set(['coaching', 'source_question', 'source_answer', 'general_question', 'control', 'new_question']);
 
 function recordLifecycle(recorder, event) {
   try { recorder?.record?.(event); } catch { /* optional diagnostics must never affect voice behavior */ }
-}
-
-function hashDiagnostic(value) {
-  return crypto.createHash('sha256').update(String(value || '')).digest('hex').slice(0, 16);
 }
 
 export const VOICE_SESSION_STATES = new Set([
@@ -68,10 +61,7 @@ export function createVoiceTurn({
 } = {}) {
   const normalizedSessionId = requireNonEmptyString(sessionId, 'sessionId');
   const normalizedInputMode = normalizeInputMode(inputMode);
-  const normalizedTranscript = requireNonEmptyString(
-    normalizedInputMode === 'voice' ? cleanVoiceTranscript(transcript) : transcript,
-    'transcript'
-  );
+  const normalizedTranscript = requireNonEmptyString(transcript, 'transcript');
 
   return {
     id,
@@ -88,7 +78,6 @@ export function createVoiceTurn({
     knowledgeLayers: [],
     citations: [],
     externalCitations: [],
-    llmBackground: [],
     discussionPoints: [],
     suggestions: [],
     unsupportedOrUnresolved: [],
@@ -97,8 +86,6 @@ export function createVoiceTurn({
     followUp: null,
     sourceSupportStatus: 'not_applicable',
     externalKnowledgeStatus: 'not_requested',
-    modelStatus: null,
-    modelFallbackReason: null,
     idempotencyKey: normalizeOptionalString(idempotencyKey),
     createdAt,
     answeredAt: null
@@ -113,7 +100,6 @@ export function approveVoiceAnswer(turn, {
   sourceClaims = [],
   externalClaims = [],
   externalCitations,
-  llmBackground = [],
   discussionPoints = [],
   suggestions = [],
   unsupportedOrUnresolved = [],
@@ -122,9 +108,7 @@ export function approveVoiceAnswer(turn, {
   confidence,
   followUp,
   sourceSupportStatus = 'not_applicable',
-  externalKnowledgeStatus = 'not_requested',
-  modelStatus = null,
-  modelFallbackReason = null
+  externalKnowledgeStatus = 'not_requested'
 }, {
   retrievedChunks = [],
   availableExternalCitations = []
@@ -163,7 +147,6 @@ export function approveVoiceAnswer(turn, {
     knowledgeLayers: normalizedKnowledgeLayers,
     citations: normalizedCitations,
     externalCitations: normalizedExternalCitations,
-    llmBackground: normalizeStringList(llmBackground, 3),
     discussionPoints: normalizeStringList(discussionPoints, 3),
     suggestions: normalizeStringList(suggestions, 3),
     unsupportedOrUnresolved: normalizeStringList(unsupportedOrUnresolved, 3),
@@ -173,8 +156,6 @@ export function approveVoiceAnswer(turn, {
     followUp: normalizeOptionalString(followUp),
     sourceSupportStatus: normalizeSourceSupportStatus(sourceSupportStatus),
     externalKnowledgeStatus: normalizeExternalKnowledgeStatus(externalKnowledgeStatus),
-    ...(MODEL_STATUSES.has(modelStatus) ? { modelStatus } : {}),
-    ...(modelFallbackReason ? { modelFallbackReason: String(modelFallbackReason).slice(0, 80) } : {}),
     answeredAt: new Date().toISOString()
   };
 }
@@ -207,30 +188,19 @@ export async function answerVoiceTurn({
   const normalizedIdempotencyKey = normalizeOptionalString(idempotencyKey);
   if (normalizedIdempotencyKey && store?.getVoiceTurnReplay) {
     const replay = store.getVoiceTurnReplay(session, normalizedIdempotencyKey);
-    if (replay) {
-      const requestedTranscript = inputMode === 'voice'
-        ? cleanVoiceTranscript(transcript)
-        : String(transcript || '').trim();
-      const replayTranscript = String(replay.turn?.transcript || '').trim();
-      if (requestedTranscript !== replayTranscript) {
-        throw new HttpError(409, 'This idempotency key belongs to a different voice turn. Start a new turn with a new key.', 'VOICE_IDEMPOTENCY_CONFLICT');
-      }
-      return replay;
-    }
+    if (replay) return replay;
   }
 
-  const cleanedTranscript = inputMode === 'voice' ? cleanVoiceTranscript(transcript) : String(transcript || '').trim();
   const turn = createVoiceTurn({
     sessionId: session.id,
     inputMode,
-    transcript: cleanedTranscript,
+    transcript,
     transcriptConfidence,
     transcriptReviewed,
     idempotencyKey: normalizedIdempotencyKey,
     sequence: Array.isArray(session.voiceTurns) ? session.voiceTurns.length : 0,
-    intent: detectVoiceIntent({ session, transcript: cleanedTranscript, intentHint })
+    intent: detectVoiceIntent({ session, transcript, intentHint })
   });
-  turn.question = String(session.currentQuestion || '').trim();
 
   recordLifecycle(lifecycleRecorder, {
     event: 'voice.submitted',
@@ -240,37 +210,19 @@ export async function answerVoiceTurn({
     sourceCount: Array.isArray(session.sources) ? session.sources.length : 0,
     transcriptLength: turn.transcript.length
   });
-  const requestStartedAt = Date.now();
-  let retrievedChunks = [];
   const complete = result => {
-    const completedTurn = result?.turn || turn;
-    const modelStatus = result?.modelStatus || completedTurn?.modelStatus || null;
-    const fallbackReason = result?.modelFallbackReason || completedTurn?.modelFallbackReason || null;
-    const agenda = createSessionAgenda(session);
     recordLifecycle(lifecycleRecorder, {
       event: 'response.completed',
       sessionId: session.id,
       mode: session.sourceMode === 'source' ? 'source' : 'practice',
       status: result?.nextState || 'completed',
       sourceCount: Array.isArray(session.sources) ? session.sources.length : 0,
-      transcriptLength: turn.transcript.length,
-      modelStatus,
-      fallbackReason,
-      agendaStage: agenda.currentStage,
-      retrievedChunkCount: retrievedChunks.length,
-      retrievedChunkIds: retrievedChunks.map(chunk => chunk.id),
-      requestDurationMs: Date.now() - requestStartedAt,
-      idempotencyHash: hashDiagnostic(normalizedIdempotencyKey || turn.transcript)
+      transcriptLength: turn.transcript.length
     });
     return result;
   };
 
   try {
-    if (turn.intent === 'close') {
-      const closeResult = buildCloseResult(turn);
-      return complete(persistVoiceTurnResult({ session, store, idempotencyKey: normalizedIdempotencyKey, result: closeResult }));
-    }
-
     if (turn.intent === 'control') {
       const controlResult = buildControlResult(turn);
       return complete(persistVoiceTurnResult({ session, store, idempotencyKey: normalizedIdempotencyKey, result: controlResult }));
@@ -288,15 +240,8 @@ export async function answerVoiceTurn({
 
     const researchContext = normalizeExternalResearch(externalResearch);
     const sourceTurn = turn.intent === 'source_question' || turn.intent === 'source_answer';
-    retrievedChunks = sourceTurn
-      ? await retrieveSourceChunks({
-        sessionId: session.id,
-        query: buildSourceRetrievalQuery(session, turn.transcript),
-        limit: 10,
-        recentChunkIds: recentSourceChunkIds(session),
-        store,
-        session
-      })
+    const retrievedChunks = sourceTurn
+      ? await retrieveSourceChunks({ sessionId: session.id, query: `${session.currentQuestion || ''} ${turn.transcript}`, limit: 10, store, session })
       : [];
 
     const result = sourceTurn
@@ -322,19 +267,13 @@ function inferIntent(transcript) {
   return CONTROL_TRANSCRIPTS.has(transcript.toLowerCase()) ? 'control' : 'general_question';
 }
 
-export function detectVoiceIntent({ session, transcript, intentHint }) {
+function detectVoiceIntent({ session, transcript, intentHint }) {
   const hinted = normalizeOptionalString(intentHint);
-  const normalizedTranscript = requireNonEmptyString(transcript, 'transcript');
-  if (looksLikeCloseRequest(normalizedTranscript)) return 'close';
-  if (CONTROL_TRANSCRIPTS.has(normalizedTranscript.toLowerCase())) return 'control';
-  if (looksLikeNewQuestionRequest(normalizedTranscript)) return 'new_question';
   if (hinted && SUPPORTED_INTENTS.has(hinted)) return hinted;
 
-  if (looksLikeQuestion(normalizedTranscript) || looksLikeExplanatoryQuestion(normalizedTranscript)) {
-    return session?.sourceMode === 'source' && Array.isArray(session?.sources) && session.sources.length
-      ? 'source_question'
-      : 'general_question';
-  }
+  const normalizedTranscript = requireNonEmptyString(transcript, 'transcript');
+  if (CONTROL_TRANSCRIPTS.has(normalizedTranscript.toLowerCase())) return 'control';
+  if (looksLikeNewQuestionRequest(normalizedTranscript)) return 'new_question';
 
   if (session?.sourceMode === 'source' && Array.isArray(session?.sources) && session.sources.length) {
     if (looksLikeQuestion(normalizedTranscript)) return 'source_question';
@@ -348,22 +287,7 @@ export function detectVoiceIntent({ session, transcript, intentHint }) {
 
 function looksLikeNewQuestionRequest(transcript) {
   const value = String(transcript || '').toLowerCase().replace(/[.!?,]/g, ' ').replace(/\s+/g, ' ').trim();
-  return /\b(?:new question|ask (?:me )?something new|another issue|another point|different question|different topic|new topic|something else|move on|move to another question|change the topic|change to another topic|check another point)\b/.test(value);
-}
-
-function looksLikeCloseRequest(transcript) {
-  const value = String(transcript || '')
-    .toLowerCase()
-    .replace(/[’']/g, '')
-    .replace(/[.!?,]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  return /\b(?:im done|i am done|im finished|i am finished|finish for today|wrap up|end the conversation|close the conversation|lets close|lets finish|thats all for today|that is all for today)\b/.test(value);
-}
-
-function looksLikeExplanatoryQuestion(transcript) {
-  const value = String(transcript || '').toLowerCase().replace(/[.!?,]/g, ' ').replace(/\s+/g, ' ').trim();
-  return /\b(?:what is|what are|why does|why is|why are|how do i|how can i|explain|provide an example|give me an example|show me an example)\b/.test(value);
+  return /\b(?:new question|ask (?:me )?something new|another issue|different question|different topic|new topic|something else|move on|move to another question|change the topic)\b/.test(value);
 }
 
 function looksLikeQuestion(transcript) {
@@ -372,20 +296,11 @@ function looksLikeQuestion(transcript) {
   return /^(?:what|why|how|when|where|who|which|can|could|would|is|are|do|does|did|please|explain|tell me)\b/i.test(value);
 }
 
-function pendingSourceProcessingMessage(session, retrievedChunks = []) {
+function pendingSourceProcessingMessage(session) {
   if (!session?.sources?.length) return '';
   if (session.digestStatus === 'failed') return 'One or more materials failed to finish processing, so grounded answers may be incomplete.';
-  if (retrievedChunks.length || session.sources.some(sourceHasUsableMaterial)) return '';
   if (session.digestStatus === 'queued' || session.digestStatus === 'processing' || session.sources.some(source => ['uploaded', 'extracting', 'digesting'].includes(source?.status))) {
     return 'Your materials are still processing, so grounded answers are not ready yet. You can keep chatting while the digest finishes.';
-  }
-  return '';
-}
-
-function backgroundDigestMessage(session) {
-  if (!session?.sources?.some(sourceHasUsableMaterial)) return '';
-  if (session.digestStatus === 'queued' || session.digestStatus === 'processing') {
-    return 'Extracted material is ready to discuss. A fuller cross-source overview is still being prepared in the background.';
   }
   return '';
 }
@@ -398,107 +313,8 @@ function normalizeInputMode(inputMode) {
   return normalized;
 }
 
-function digestSummary(digest) {
-  return String(digest?.mainArgument || digest?.digestText || digest?.summary || digest?.overview || '').trim();
-}
-
-function queryTerms(text) {
-  return new Set(String(text || '').toLowerCase().match(/[a-z0-9]{3,}/g) || []);
-}
-
-function needsImmediateContext(transcript) {
-  const normalized = String(transcript || '').trim().toLowerCase();
-  return queryTerms(normalized).size <= 5
-    || /^(why|how|what about|what does that|and then|can you explain|what do you mean)\b/i.test(normalized);
-}
-
-function buildSourceRetrievalQuery(session, transcript) {
-  const recent = buildConversationHistory(session, { limit: 3 });
-  const recentText = needsImmediateContext(transcript)
-    ? recent.slice(-2).flatMap(item => [item?.question, item?.answer, item?.transcript, item?.answerText, item?.assistantResponse, item?.followUp])
-    : [];
-  return [session?.currentQuestion, transcript, ...recentText]
-    .map(value => String(value || '').trim())
-    .filter(Boolean)
-    .join(' ');
-}
-
-function recentSourceChunkIds(session, limit = 4) {
-  const recent = [
-    ...(Array.isArray(session?.turns) ? session.turns.slice(-6) : []),
-    ...(Array.isArray(session?.voiceTurns) ? session.voiceTurns.slice(-6) : [])
-  ];
-  const ids = [];
-  for (const turn of recent) {
-    for (const citation of Array.isArray(turn?.citations) ? turn.citations : []) {
-      if (citation?.chunkId) ids.push(String(citation.chunkId));
-    }
-  }
-  return [...new Set(ids)].slice(-Math.max(1, Number(limit) || 4));
-}
-
-function buildConversationSourceDigest(session) {
-  const consolidated = session?.sourceDigest && typeof session.sourceDigest === 'object'
-    ? session.sourceDigest
-    : null;
-  const sourceDigests = (Array.isArray(session?.sources) ? session.sources : [])
-    .map(source => {
-      const digest = source?.digest;
-      const summary = digestSummary(digest);
-      if (!summary && !Array.isArray(digest?.keyPoints)) return null;
-      const keyPoints = (Array.isArray(digest?.keyPoints) ? digest.keyPoints : [])
-        .map(point => {
-          const evidence = String(point?.evidence || '').trim();
-          const chunkIds = Array.isArray(point?.chunkIds) && point.chunkIds.length
-            ? point.chunkIds.slice(0, 4)
-            : (Array.isArray(source?.chunks) ? source.chunks : [])
-              .filter(chunk => evidence && String(chunk?.text || '').includes(evidence))
-              .map(chunk => chunk.id)
-              .slice(0, 4);
-          return {
-            text: String(point?.text || '').trim(),
-            evidence,
-            chunkIds,
-            sourceId: source.id,
-            sourceName: source.name
-          };
-        })
-        .filter(point => point.text || point.evidence);
-      return {
-        sourceId: source.id,
-        sourceName: source.name,
-        summary,
-        keyPoints,
-        openQuestions: Array.isArray(digest?.openQuestions) ? digest.openQuestions.slice(0, 3).map(String) : []
-      };
-    })
-    .filter(Boolean);
-
-  if (!consolidated && !sourceDigests.length) return null;
-  const perSourcePoints = sourceDigests.flatMap(item => item.keyPoints);
-  const keyPoints = Array.isArray(consolidated?.keyPoints) && consolidated.keyPoints.length
-    ? consolidated.keyPoints
-    : perSourcePoints;
-  const evidence = Array.isArray(consolidated?.evidence) && consolidated.evidence.length
-    ? consolidated.evidence
-    : perSourcePoints
-      .filter(point => point.evidence && point.chunkIds.length)
-      .map(point => ({ claim: point.evidence, chunkIds: point.chunkIds }));
-  const mainArgument = digestSummary(consolidated) || sourceDigests.map(item => item.summary).filter(Boolean).join(' ');
-  return {
-    ...(consolidated || {}),
-    mainArgument,
-    keyPoints,
-    evidence,
-    sourceDigests,
-    openQuestions: Array.isArray(consolidated?.openQuestions) && consolidated.openQuestions.length
-      ? consolidated.openQuestions
-      : sourceDigests.flatMap(item => item.openQuestions).slice(0, 5)
-  };
-}
-
 async function buildSourceAnswerResult({ turn, session, store, coach, retrievedChunks, researchContext, skillProfile }) {
-  const readinessMessage = pendingSourceProcessingMessage(session, retrievedChunks);
+  const readinessMessage = pendingSourceProcessingMessage(session);
   if (readinessMessage) {
     const raw = typeof coach?.generalAnswer === 'function'
       ? await coach.generalAnswer(turn.transcript)
@@ -541,19 +357,14 @@ async function buildSourceAnswerResult({ turn, session, store, coach, retrievedC
     return response;
   }
   const conversationHistory = buildConversationHistory(session);
-  const conversationTurnCount = countConversationTurns(session);
-  const agenda = createSessionAgenda(session, conversationHistory, conversationTurnCount);
-  const conversationSourceDigest = buildConversationSourceDigest(session);
   const raw = typeof coach?.composeBlendedAnswer === 'function'
     ? await coach.composeBlendedAnswer({
       userQuestion: turn.transcript,
       currentQuestion: session.currentQuestion || null,
       turnRole: turn.intent === 'source_answer' ? 'answer_to_ai' : 'user_question',
-      sourceDigest: conversationSourceDigest,
+      sourceDigest: session.sourceDigest || null,
       retrievedChunks,
       conversationHistory,
-      conversationTurnCount,
-      agenda,
       skillProfile,
       generalKnowledgeAllowed: true,
       externalResearchResult: researchContext.approved
@@ -565,9 +376,7 @@ async function buildSourceAnswerResult({ turn, session, store, coach, retrievedC
   const normalized = normalizeBlendedResult(raw, { retrievedChunks, researchContext, generalKnowledgeAllowed: true });
   const approved = approveVoiceAnswer(turn, {
     ...normalized,
-    answerSpeechText: buildSourceSpeechText(normalized),
-    modelStatus: normalized.modelStatus,
-    modelFallbackReason: normalized.modelFallbackReason
+    answerSpeechText: buildSourceSpeechText(normalized)
   }, {
     retrievedChunks,
     availableExternalCitations: researchContext.results
@@ -575,7 +384,6 @@ async function buildSourceAnswerResult({ turn, session, store, coach, retrievedC
   const response = buildAnsweredResponse(approved, {
     nextState: 'speaking_answer',
     requiresExternalConsent: researchContext.requiresExternalConsent,
-    sourceDigestStatus: backgroundDigestMessage(session),
     legacyAnswer: raw?.mode === 'source' ? raw : buildLegacySourceAnswer(approved, retrievedChunks)
   });
   session.voiceState = response.nextState;
@@ -585,23 +393,19 @@ async function buildSourceAnswerResult({ turn, session, store, coach, retrievedC
 async function buildNewQuestionResult({ turn, session, coach, skillRegistry }) {
   const skillProfile = getConversationSkill(skillRegistry, session);
   const conversationHistory = buildConversationHistory(session);
-  const conversationTurnCount = countConversationTurns(session);
-  const agenda = createSessionAgenda(session, conversationHistory, conversationTurnCount);
-  const conversationSourceDigest = buildConversationSourceDigest(session);
   let nextQuestion;
   if (typeof coach?.nextQuestion === 'function') {
       nextQuestion = await coach.nextQuestion({
         topic: session.topic,
         previousQuestion: session.currentQuestion,
         conversationHistory,
-        conversationTurnCount,
-        agenda,
+        conversationTurnCount: countConversationTurns(session),
         sources: session.sources || [],
-      sourceDigest: conversationSourceDigest,
+      sourceDigest: session.sourceDigest || null,
       skillProfile
     });
   } else if (session.sourceMode === 'source' && typeof coach?.sourceQuestion === 'function') {
-    nextQuestion = await coach.sourceQuestion({ topic: session.topic, sources: session.sources || [], sourceDigest: conversationSourceDigest, conversationHistory, conversationTurnCount, agenda, skillProfile });
+    nextQuestion = await coach.sourceQuestion({ topic: session.topic, sources: session.sources || [], sourceDigest: session.sourceDigest || null, conversationHistory, conversationTurnCount: countConversationTurns(session), skillProfile });
   } else if (typeof coach?.initialQuestion === 'function') {
     nextQuestion = await coach.initialQuestion({ topic: session.topic, skillProfile });
   }
@@ -621,7 +425,6 @@ async function buildNewQuestionResult({ turn, session, coach, skillRegistry }) {
     nextState: 'speaking_answer',
     countsAsAnswer: false,
     newQuestion: true,
-    moveOnRequested: true,
     requiresExternalConsent: false,
     legacyAnswer: null
   });
@@ -687,9 +490,6 @@ async function buildCoachingResult({ turn, session, coach, skillProfile }) {
     question: session.currentQuestion,
     answer: turn.transcript,
     turnIndex: Array.isArray(session.turns) ? session.turns.length : 0,
-    conversationTurnCount: countConversationTurns(session),
-    conversationHistory: buildConversationHistory(session),
-    agenda: createSessionAgenda(session),
     feedbackStyle: session.feedbackStyle,
     sources: session.sources || [],
     skillProfile
@@ -793,14 +593,11 @@ function normalizeBlendedResult(raw, { retrievedChunks, researchContext, general
   return {
     answerText: requireNonEmptyString(raw?.answerText || raw?.answer, 'answerText'),
     answerSpeechText: requireNonEmptyString(raw?.answerSpeechText || raw?.answerText || raw?.answer, 'answerSpeechText'),
-    modelStatus: MODEL_STATUSES.has(raw?.modelStatus) ? raw.modelStatus : 'generated',
-    modelFallbackReason: normalizeOptionalString(raw?.modelFallbackReason),
     knowledgeLayers: inferKnowledgeLayers(raw, researchContext, { generalKnowledgeAllowed }),
     citations,
     externalCitations: Array.isArray(raw?.externalCitations)
       ? raw.externalCitations
       : (researchContext.approved ? researchContext.results : []),
-    llmBackground: generalKnowledgeAllowed ? normalizeStringList(raw?.llmBackground, 3) : [],
     discussionPoints: normalizeStringList(raw?.discussionPoints, 3),
     suggestions: normalizeStringList(raw?.suggestions, 3),
     unsupportedOrUnresolved: normalizeStringList(raw?.unsupportedOrUnresolved || raw?.uncertainty, 3),
@@ -882,7 +679,7 @@ function buildCoachingSpeechText({ academicResponse, feedback, followUp, fallbac
   return limitVoiceText(parts.length ? parts.join(' ') : requireNonEmptyString(fallback, 'answerSpeechText'));
 }
 
-function limitVoiceText(value, max = 420) {
+function limitVoiceText(value, max = 600) {
   const text = String(value || '').replace(/\s+/g, ' ').trim();
   if (text.length <= max) return text;
   const boundary = text.slice(0, max).lastIndexOf('.');
@@ -952,33 +749,11 @@ function normalizeExternalKnowledgeStatus(value) {
 
 function buildSourceSpeechText(answer) {
   const base = requireNonEmptyString(answer.answerSpeechText || answer.answerText, 'answerSpeechText');
-  const allBaseParts = splitSentences(base);
-  const questionIndex = allBaseParts.findIndex(sentence => sentence.includes('?'));
-  const parts = questionIndex >= 0 ? allBaseParts.slice(0, questionIndex) : [...allBaseParts];
-  const existingQuestion = questionIndex >= 0 ? allBaseParts.slice(questionIndex) : [];
-  const candidates = [
-    ...splitSentences(answer.answerText),
-    ...normalizeStringList(answer.llmBackground, 2).flatMap(splitSentences),
-    ...normalizeStringList(answer.discussionPoints, 2).flatMap(splitSentences),
-    ...normalizeStringList(answer.suggestions, 1).flatMap(splitSentences)
-  ];
-  for (const sentence of candidates) {
-    if (parts.length >= 5) break;
-    if (!parts.some(existing => existing.toLowerCase() === sentence.toLowerCase())) parts.push(sentence);
-  }
   const followUp = normalizeOptionalString(answer.followUp);
-  if (existingQuestion.length) parts.push(...existingQuestion);
-  else if (followUp && !parts.join(' ').toLowerCase().includes(followUp.toLowerCase())) parts.push(followUp);
-  return limitVoiceText(parts.join(' '), 900);
-}
-
-function splitSentences(value) {
-  return String(value || '')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .split(/(?<=[.!?])\s+/)
-    .map(sentence => sentence.trim())
-    .filter(Boolean);
+  if (!followUp) return base;
+  if (base.toLowerCase().includes(followUp.toLowerCase())) return base;
+  if (base.includes('?')) return base;
+  return `${base} ${followUp}`;
 }
 
 function buildAnsweredResponse(turn, extras = {}) {
@@ -989,11 +764,8 @@ function buildAnsweredResponse(turn, extras = {}) {
     knowledgeLayers: turn.knowledgeLayers,
     citations: turn.citations,
     externalCitations: turn.externalCitations,
-    llmBackground: turn.llmBackground,
     discussionPoints: turn.discussionPoints,
     suggestions: turn.suggestions,
-    ...(turn.modelStatus ? { modelStatus: turn.modelStatus } : {}),
-    ...(turn.modelFallbackReason ? { modelFallbackReason: turn.modelFallbackReason } : {}),
     unsupportedOrUnresolved: turn.unsupportedOrUnresolved,
     conflicts: turn.conflicts,
     ...(turn.academicAssessment ? { academicAssessment: turn.academicAssessment } : {}),
@@ -1003,8 +775,6 @@ function buildAnsweredResponse(turn, extras = {}) {
     externalKnowledgeStatus: turn.externalKnowledgeStatus,
     countsAsAnswer: extras.countsAsAnswer !== false,
     ...(extras.newQuestion ? { newQuestion: true } : {}),
-    ...(extras.moveOnRequested ? { moveOnRequested: true } : {}),
-    ...(extras.closeRequested ? { closeRequested: true } : {}),
     nextState: extras.nextState || 'speaking_answer',
     requiresExternalConsent: Boolean(extras.requiresExternalConsent),
     ...(extras.sourceDigestStatus ? { sourceDigestStatus: extras.sourceDigestStatus } : {}),
@@ -1061,25 +831,6 @@ function buildControlResult(turn) {
   });
 }
 
-function buildCloseResult(turn) {
-  const answered = approveVoiceAnswer(turn, {
-    answerText: 'I will wrap up this conversation and prepare your session summary.',
-    answerSpeechText: 'I will wrap up this conversation and prepare your session summary.',
-    knowledgeLayers: ['llm'],
-    citations: [],
-    externalCitations: [],
-    confidence: 'high',
-    followUp: null
-  });
-  return buildAnsweredResponse(answered, {
-    nextState: 'completed',
-    countsAsAnswer: false,
-    closeRequested: true,
-    requiresExternalConsent: false,
-    legacyAnswer: null
-  });
-}
-
 function controlTranscriptState(transcript) {
   switch (String(transcript || '').trim().toLowerCase()) {
     case 'pause': return 'paused';
@@ -1112,40 +863,23 @@ function normalizeExternalResearch(externalResearch) {
   };
 }
 
-export function buildConversationHistory(session, { limit = 3 } = {}) {
+export function buildConversationHistory(session, { limit = 2 } = {}) {
   const activeMode = session?.sourceMode === 'source' ? 'source' : 'practice';
   const typedTurns = Array.isArray(session?.turns) ? session.turns.map(turn => ({
     mode: turn.mode || (turn.sourceMode === 'source' ? 'source' : activeMode),
     role: 'coach',
     question: turn.question,
-    answer: turn.answer,
-    assistantResponse: turn.feedback?.academicResponse || turn.feedback?.answerSpeechText,
-    followUp: turn.feedback?.nextQuestion
+    answer: turn.answer
   })) : [];
   const voiceTurns = Array.isArray(session?.voiceTurns) ? session.voiceTurns.map(turn => ({
     mode: turn.mode || activeMode,
     role: turn.intent,
-    status: turn.status,
-    question: turn.question || turn.currentQuestion,
     transcript: turn.transcript,
-    answerText: turn.answerText,
-    assistantResponse: turn.answerText || turn.answerSpeechText,
-    followUp: turn.followUp
+    answerText: turn.answerText
   })) : [];
   return [...typedTurns, ...voiceTurns]
-    .filter(turn => turn.mode === activeMode && turn.status !== 'interrupted')
-    .slice(-Math.max(1, Number(limit) || 3));
-}
-
-function createSessionAgenda(session, conversationHistory = buildConversationHistory(session), completedTurns = countConversationTurns(session)) {
-  const recentQuestions = conversationHistory
-    .map(item => item?.question || '')
-    .filter(Boolean);
-  return createConversationAgenda({
-    completedTurns,
-    currentQuestion: session?.currentQuestion || '',
-    recentQuestions
-  });
+    .filter(turn => turn.mode === activeMode)
+    .slice(-Math.max(1, Number(limit) || 2));
 }
 
 function countConversationTurns(session) {
@@ -1154,7 +888,7 @@ function countConversationTurns(session) {
     ? session.turns.filter(turn => (turn.mode || (turn.sourceMode === 'source' ? 'source' : activeMode)) === activeMode).length
     : 0;
   const voiceCount = Array.isArray(session?.voiceTurns)
-    ? session.voiceTurns.filter(turn => (turn.mode || activeMode) === activeMode && !['control', 'new_question', 'close'].includes(turn.intent) && (turn.status === 'answered' || (turn.status === 'interrupted' && Boolean(turn.answerText)))).length
+    ? session.voiceTurns.filter(turn => (turn.mode || activeMode) === activeMode && !['control', 'new_question'].includes(turn.intent) && turn.status !== 'pending').length
     : 0;
   return typedCount + voiceCount;
 }

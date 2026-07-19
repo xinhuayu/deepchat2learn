@@ -398,7 +398,7 @@ function buildSessionPublic(id, currentQuestion = '') {
   };
 }
 
-function createFixtureServer(fixtures, { digestStatus = 'ready', denyMicrophone = false, currentQuestion = '', failVoiceTurns = 0, pendingVoiceTurn = null } = {}) {
+function createFixtureServer(fixtures, { digestStatus = 'ready', denyMicrophone = false, currentQuestion = '', failVoiceTurns = 0, pendingVoiceTurn = null, realtimeConfigured = false } = {}) {
   const sessionId = 'session-voice-1';
   const token = 'token-voice-1';
   const paper = materializeSource(fixtures.paper.source);
@@ -583,7 +583,7 @@ function createFixtureServer(fixtures, { digestStatus = 'ready', denyMicrophone 
       const method = String(options.method || 'GET').toUpperCase();
       const body = options.body ? JSON.parse(options.body) : null;
       if (pathname === '/api/health') {
-        return { ok: true, body: { capabilities: { textCoach: 'local', realtimeVoice: true, storage: 'sqlite' }, sourceLimits: { maxFiles: 10, maxFileBytes: 20_000_000 }, privacy: { defaultRetentionMode: 'until_deleted', audioStorage: 'never' } } };
+        return { ok: true, body: { capabilities: { textCoach: 'local', realtimeVoice: realtimeConfigured, storage: 'sqlite' }, connection: { realtimeVoice: realtimeConfigured ? 'configured' : 'not_configured' }, sourceLimits: { maxFiles: 10, maxFileBytes: 20_000_000 }, privacy: { defaultRetentionMode: 'until_deleted', audioStorage: 'never' } } };
       }
       if (pathname === '/api/sessions' && method === 'POST') {
         const session = buildSessionPublic(sessionId, 'What is the central claim?');
@@ -1075,6 +1075,7 @@ test('opted-in realtime voice records complete conversation when remote audio is
 
   const recorder = harness.recordingFixture.lastRecorder;
   assert.ok(recorder, 'realtime recording should create a MediaRecorder');
+  assert.equal(harness.mediaConstraints.length, 1, 'realtime voice should reuse the permission stream instead of requesting the microphone twice');
   assert.equal(recorder.state, 'recording');
   assert.equal(harness.recordingFixture.audioContexts.length, 1);
   assert.equal(harness.recordingFixture.audioContexts[0].sources.length, 2);
@@ -1484,6 +1485,30 @@ test('mobile browsers without SpeechRecognition do not show a browser permission
 
   assert.equal(panel.classList.contains('hidden'), true);
   assert.match(harness.document.querySelector('#browser-audio-note').textContent, /live AI voice|typing/i);
+});
+
+test('mobile browser without SpeechRecognition uses configured Realtime voice from the main voice button', async () => {
+  const harness = await createHarness({ mobile: true, noSpeechRecognition: true, realtimeConfigured: true, microphonePermission: 'granted' });
+
+  harness.document.querySelector('#voiceConversationButton').click();
+  await harness.flush();
+
+  assert.equal(harness.voiceCoordinator.active, true);
+  assert.equal(harness.voiceCoordinator.transport, 'realtime');
+  assert.ok(harness.dataChannel(), 'configured Realtime transport should be selected automatically');
+  assert.equal(harness.mediaConstraints.length, 1, 'the permission stream should be reused for the live transport');
+});
+
+test('mobile browser prefers configured Realtime voice even when SpeechRecognition exists', async () => {
+  const harness = await createHarness({ mobile: true, realtimeConfigured: true, microphonePermission: 'granted' });
+
+  harness.document.querySelector('#voiceConversationButton').click();
+  await harness.flush();
+
+  assert.equal(harness.voiceCoordinator.active, true);
+  assert.equal(harness.voiceCoordinator.transport, 'realtime');
+  assert.ok(harness.dataChannel(), 'mobile voice should use the capability-backed Realtime transport');
+  assert.equal(harness.mediaConstraints.length, 1, 'mobile Realtime voice should reuse the permission stream');
 });
 
 test('unsupported speech recognition leaves the typed fallback focused and ready', async () => {

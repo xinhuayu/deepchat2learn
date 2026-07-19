@@ -32,7 +32,7 @@ test('bundled academic skills load for digestion and source conversation', () =>
   assert.match(conversation.instructions, /general knowledge/i);
   assert.match(conversation.instructions, /follow-up/i);
   assert.match(conversation.instructions, /one key learning point/i);
-  assert.match(conversation.instructions, /practice.*two to four sentences|source.*four to six sentences/i);
+  assert.match(conversation.instructions, /two to four sentences/i);
   assert.match(research.instructions, /source digestion|research summary/i);
   assert.match(research.instructions, /not.*conversation round|not.*follow-up/i);
   assert.match(registry.get('epi-research').instructions, /explicit.*review|methods review/i);

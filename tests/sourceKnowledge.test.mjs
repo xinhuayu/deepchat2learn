@@ -110,42 +110,6 @@ test('buildConsolidatedDigest rejects model claims that are not exact chunk subs
   assert.equal(digest.evidence[0].chunkIds[0], chunks[0].id);
 });
 
-test('buildConsolidatedDigest accepts a paraphrased key point when exact evidence is supplied separately', async () => {
-  const source = {
-    id: 'source-paraphrase',
-    name: 'paper.txt',
-    text: 'Participants were followed annually, and the exposure preceded the measured outcome.',
-    warnings: []
-  };
-  const chunks = chunkSource({ sourceId: source.id, text: source.text, pages: null, targetWords: 20, overlapWords: 2 });
-  const evidence = chunks[0].text;
-  const digest = await buildConsolidatedDigest({
-    sources: [source],
-    chunks,
-    coach: {
-      async buildConsolidatedDigest() {
-        return {
-          mainArgument: 'The paper uses repeated observation to examine a temporally ordered association.',
-          keyPoints: [{
-            text: 'Repeated follow-up supports interpretation of the exposure-outcome sequence.',
-            evidence,
-            chunkIds: [chunks[0].id]
-          }],
-          importantTerms: ['temporality'],
-          evidence: [{ claim: evidence, chunkIds: [chunks[0].id] }],
-          conflicts: [],
-          openQuestions: [],
-          warnings: []
-        };
-      }
-    }
-  });
-
-  assert.equal(digest.mode, 'model');
-  assert.equal(digest.keyPoints[0].text, 'Repeated follow-up supports interpretation of the exposure-outcome sequence.');
-  assert.equal(digest.keyPoints[0].evidence, evidence);
-});
-
 test('buildConsolidatedDigest forwards the active skill profile to the coach', async () => {
   const source = { id: 'source-1', name: 'paper.txt', text: 'A cohort study reports an association.', warnings: [] };
   const chunks = chunkSource({ sourceId: source.id, text: source.text, pages: null, targetWords: 20, overlapWords: 2 });
@@ -173,7 +137,7 @@ test('buildConsolidatedDigest forwards the active skill profile to the coach', a
   assert.equal(digest.mode, 'model');
 });
 
-test('buildConsolidatedDigest accepts a synthesized claim supported by one of several cited chunks', async () => {
+test('buildConsolidatedDigest rejects a claim when any referenced chunkId fails exact evidence validation', async () => {
   const source = {
     id: 'source-1',
     name: 'paper.txt',
@@ -200,45 +164,8 @@ test('buildConsolidatedDigest accepts a synthesized claim supported by one of se
     }
   });
 
-  assert.equal(digest.mode, 'model');
-});
-
-test('buildConsolidatedDigest falls back safely when model consolidation fails', async () => {
-  const source = {
-    id: 'source-1',
-    name: 'paper.txt',
-    text: 'Repeated measures can describe changes over time.',
-    warnings: []
-  };
-  const chunks = chunkSource({ sourceId: source.id, text: source.text, pages: null, targetWords: 20, overlapWords: 2 });
-  const digest = await buildConsolidatedDigest({
-    sources: [source],
-    chunks,
-    coach: { async buildConsolidatedDigest() { throw new Error('upstream unavailable'); } }
-  });
-
   assert.equal(digest.mode, 'extractive');
-  assert.match(digest.warnings.join(' '), /AI digest unavailable/i);
-});
-
-test('buildConsolidatedDigest rejects a synthesized claim with an unknown cited chunk', async () => {
-  const source = { id: 'source-1', name: 'paper.txt', text: 'Repeated measures can describe changes over time.', warnings: [] };
-  const chunks = chunkSource({ sourceId: source.id, text: source.text, pages: null, targetWords: 20, overlapWords: 2 });
-  const digest = await buildConsolidatedDigest({
-    sources: [source],
-    chunks,
-    coach: {
-      async buildConsolidatedDigest() {
-        return {
-          mainArgument: chunks[0].text,
-          keyPoints: [{ text: chunks[0].text, sourceIds: [source.id], chunkIds: [chunks[0].id, 'missing-chunk'] }],
-          importantTerms: [], evidence: [], conflicts: [], openQuestions: [], warnings: []
-        };
-      }
-    }
-  });
-
-  assert.equal(digest.mode, 'extractive');
+  assert.match(digest.warnings.join(' '), /validated/i);
 });
 
 test('retrieveSourceChunks ranks a known concept into the top 10 with source metadata and de-duplication', async () => {
@@ -357,30 +284,6 @@ test('retrieveSourceChunks returns equivalent ordering for in-memory and SQLite 
     sqlite.close();
     await rm(directory, { recursive: true, force: true });
   }
-});
-
-test('retrieveSourceChunks prefers an unused source section when relevant alternatives exist', async () => {
-  const session = {
-    id: 'session-diverse-retrieval',
-    sources: [{
-      id: 'paper',
-      name: 'Paper',
-      chunks: [
-        { id: 'paper:intro', sourceId: 'paper', sourceName: 'Paper', text: 'The authors identify a limitation. The authors identify another limitation in the introduction.', page: 1, section: 'Introduction', start: 0, end: 90 },
-        { id: 'paper:discussion', sourceId: 'paper', sourceName: 'Paper', text: 'The discussion addresses the limitation and explains its consequence for participants.', page: 8, section: 'Discussion', start: 91, end: 170 }
-      ]
-    }]
-  };
-
-  const matches = await retrieveSourceChunks({
-    sessionId: session.id,
-    query: 'What limitation did the authors identify?',
-    limit: 1,
-    recentChunkIds: ['paper:intro'],
-    store: { get(id) { return id === session.id ? session : null; } }
-  });
-
-  assert.equal(matches[0].id, 'paper:discussion');
 });
 
 test('fixture retrieval keeps complementary source evidence in the top 10 with exact excerpts', async () => {

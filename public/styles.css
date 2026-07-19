@@ -230,3 +230,12 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 @keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 @media (max-width: 760px) { .voice-permission-setup { align-items: stretch; flex-direction: column; } .voice-permission-setup button { width: 100%; } .shell { padding: 18px 15px 45px; } .topbar { margin-bottom: 28px; } .topbar-note { display: none; } .mode-grid, .session-grid, .advanced-grid { grid-template-columns: 1fr; } .session-head { align-items: center; } h2 { font-size: 28px; } .question-card, .feedback-card, .answer-card, .materials-panel, .summary-card, .setup-card, .transcript-panel { padding: 20px; } .question-actions, .voice-toolbar, .recording-actions { grid-template-columns: 1fr; } .question-actions #sourceQuestionButton { grid-column: auto; } .recording-opt-in { align-items: stretch; flex-direction: column; } .recording-note { max-width: none; text-align: left; } .score-grid { grid-template-columns: repeat(3, 1fr); } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; scroll-behavior: auto !important; transition: none !important; } .view { animation: none !important; } .primary:hover, .secondary:hover, .quiet-button:hover { transform: none; } }
+.voice-remote-audio {
+  position: fixed;
+  left: -10000px;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}

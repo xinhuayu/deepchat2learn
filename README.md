@@ -1,20 +1,8 @@
-<p align="center">
-  <img src="public/brand-logo.png" alt="deepchat2learn logo" width="280">
-</p>
+# deepchat2learn - AI Coaching MVP
 
-# deepchat2learn - Academic Learning MVP
-
-deepchat2learn is a browser-based academic learning environment for deep voice conversations, practicing explanations, and exploring supplied source material. The dependency-free local setup includes a deterministic academic conversation coach and can optionally use a server-side text model, live AI voice, and SQLite persistence.
-
-For the current milestone status, verified feature checklist, architecture, risks, and next priorities, see the canonical [document/SYSTEM-SUMMARY.md](document/SYSTEM-SUMMARY.md). The former milestone file is retained only as a pointer for compatibility. Distribution cautions are in [document/DISTRIBUTION-READINESS.md](document/DISTRIBUTION-READINESS.md).
+deepchat2learn is a browser-based coaching app for practicing explanations and exploring supplied source material. The dependency-free local setup includes a deterministic coach and can optionally use a server-side text model, live AI voice, and SQLite persistence.
 
 Bundled skill profiles can shape how supplied materials are digested and discussed. The first profile is `epi-research`, a doctoral-level epidemiologic methods critique guide stored under `skills/epi-research/`. Skill guidance controls the review method and response structure; paper-specific claims and citations must still come from the uploaded material.
-
-## Try the live demo
-
-Open the hosted application at [deepchat2learn.onrender.com](https://deepchat2learn.onrender.com/).
-
-For the best experience, use a modern browser, allow microphone and speaker access when prompted, and begin with a short question. The live deployment may provide either model-backed responses or the built-in local fallback depending on its current provider configuration. Do not enter confidential or sensitive source material into the public demo.
 
 ## Run locally
 
@@ -52,33 +40,35 @@ OPENAI_API_KEY=your-key-goes-here
 3. Save the file and start the server with `npm start`.
 4. Open [http://localhost:3000](http://localhost:3000).
 
-The server loads `.env` automatically and reads `OPENAI_API_KEY` only on the server. `.env` is ignored by Git; never commit it or share it in screenshots, logs, or chat. If the key is blank or the `.env` file is absent, the typed path, browser voice input, and spoken browser playback still work through the local demo and browser capabilities. Without a provider key, responses are limited to the bundled local academic coach and built-in extraction; provider-backed answers are not available.
+The server loads `.env` automatically and reads `OPENAI_API_KEY` only on the server. `.env` is ignored by Git; never commit it or share it in screenshots, logs, or chat. If the key is blank or the `.env` file is absent, the typed path, browser voice input, and spoken browser playback still work through the local demo and browser capabilities.
 
-To use model-backed text coaching, source digestion, and OpenAI Realtime voice, provide a valid key and keep the remaining settings from `.env.example` unless you have a reason to change them. A key from another provider—such as Claude, Gemini, Grok, DeepSeek, or Kimi—can be used only after adding an adapter or configuring an OpenAI-compatible endpoint for that provider. A provider key by itself is not automatically interchangeable with the current OpenAI SDK/API calls. For GPT Live-style real-time audio, the selected provider must also support the configured Realtime/WebRTC path; a text-only API key enables text generation but not live voice transport.
+To use the optional model-backed text coaching and OpenAI Realtime voice, fill in the key and keep the remaining settings from `.env.example` unless you have a reason to change them.
 
-### Python and PDF extraction
+Interactive text turns use a 30-second default deadline, balancing fuller remote-model response time with a responsive live conversation; the local academic fallback can continue the session if the deadline is reached. Source digestion keeps its separate longer deadline. You can adjust `OPENAI_TEXT_TIMEOUT_MS` in `.env` when the deployment has a faster or slower connection.
+
+The Windows test package also includes the configured Python path for richer research-PDF extraction:
 
 ```text
-DEEPCHAT2LEARN_PYTHON_BIN=full-path-to-your-python.exe
+DEEPCHAT2LEARN_PYTHON_BIN=C:\Users\yuxin\AppData\Local\Python\pythoncore-3.14-64\python.exe
 ```
 
-The Python path is deliberately blank in the distributable `.env.example`; never copy a developer's personal path into a shared package. Set it to the full path of the Python executable on the machine running the server, or leave it blank. Python is optional for ordinary text-based PDFs, DOCX/Word files, TXT, Markdown, and pasted notes because the Node fallback handles those inputs. Python plus PDF packages such as `pdfplumber` and/or `PyMuPDF` (`fitz`) is recommended for complex, layout-heavy, table-rich, figure-heavy, or scanned research PDFs. Additional OCR or figure-vision tooling may be required for scanned pages and visual interpretation. If Python is unavailable, the application should report that optional enhancement as unavailable and continue with its built-in Node extraction rather than rejecting the source.
+This path is machine-specific. On another host, replace it with that host's Python executable or leave it blank; Node-only PDF extraction remains available. The richer extractor requires `pdfplumber` in that Python environment.
 
 ```text
 OPENAI_API_KEY=your-server-side-key
 OPENAI_TEXT_MODEL=gpt-5-mini
-OPENAI_TEXT_TIMEOUT_MS=120000
-OPENAI_SOURCE_DIGEST_TIMEOUT_MS=300000
+OPENAI_TEXT_TIMEOUT_MS=30000
+OPENAI_SOURCE_DIGEST_TIMEOUT_MS=180000
 # Separate low-latency audio model; change this independently from text reasoning.
 OPENAI_AUDIO_MODEL=gpt-realtime-mini
 # Optional backward-compatible alias if OPENAI_AUDIO_MODEL is blank.
 OPENAI_REALTIME_MODEL=
-OPENAI_REALTIME_TIMEOUT_MS=120000
+OPENAI_REALTIME_TIMEOUT_MS=60000
 OPENAI_TRANSCRIBE_MODEL=gpt-4o-mini-transcribe
 VOICE_AUTO_SUBMIT_DELAY_MS=5000
 VOICE_TRANSITION_DELAY_MS=750
 VOICE_REALTIME_SILENCE_MS=5000
-VOICE_REALTIME_WATCHDOG_MS=0
+VOICE_REALTIME_WATCHDOG_MS=30000
 VOICE_MAX_RECOGNITION_RETRIES=8
 VOICE_MAX_TRANSCRIPT_CHARACTERS=12000
 RATE_LIMIT_PER_MINUTE=120
@@ -96,7 +86,7 @@ MAX_SOURCE_COMBINED_BYTES=50000000
 npm start
 ```
 
-The text model powers questions, feedback, and general-context answers. The live voice button uses a separate Realtime audio model and transcription model, so speech latency and cost can be tuned independently from text reasoning. The backend still owns source-grounded answers and the typed turn contract. Realtime turn detection waits for five seconds of silence by default so normal academic pauses do not end an answer prematurely. Browser voice recognition is continuous and accumulates multiple finalized speech segments before the five-second pause submits the answer. Interim hypotheses stay out of the answer box and server request; when the browser revises a result at the same recognition index, the latest finalized wording replaces the earlier hypothesis instead of being appended. Ordinary voice turns allow up to 120 seconds for model processing and source digestion allows up to 300 seconds by default; temporary failures preserve the transcript so it can be retried, and stopping a session discards any late response from an earlier turn. On iPhone, the voice button primes browser speech recognition from the user gesture and explains that Safari may request both microphone and browser speech-recognition permission. If mobile speech playback reports neither completion nor error, a conservative watchdog advances to listening instead of leaving the UI stuck at AI speaking.
+The text model powers questions, feedback, and general-context answers. The live voice button uses a separate Realtime audio model and transcription model, so speech latency and cost can be tuned independently from text reasoning. The backend still owns source-grounded answers and the typed turn contract. Realtime turn detection waits for five seconds of silence by default so normal academic pauses do not end an answer prematurely. Browser voice recognition is continuous and accumulates multiple finalized speech segments before the five-second pause submits the answer. Interim hypotheses stay out of the answer box and server request; when the browser revises a result at the same recognition index, the latest finalized wording replaces the earlier hypothesis instead of being appended. Voice turns allow up to 60 seconds for model processing; temporary failures preserve the transcript so it can be retried, and stopping a session discards any late response from an earlier turn.
 
 Set `SQLITE_PATH=./data/deepchat2learn.sqlite` to persist sessions and supplied materials across restarts. Leave it unset for the lightweight in-memory demo. SQLite persistence requires Node 22.5 or newer because it uses Node's built-in `node:sqlite` support.
 
@@ -106,7 +96,7 @@ Set `SQLITE_PATH=./data/deepchat2learn.sqlite` to persist sessions and supplied 
 - Typed answer loop: question -> answer -> feedback -> follow-up -> summary.
 - Coaching feedback now includes an academic relevance judgment, a concise knowledge-based explanation or correction, and a follow-up tied to the user's latest claim or gap. Voice coaching speaks the same sequence so the discussion develops from the learner's response.
 - Session-scoped capability tokens and in-memory retention.
-- Optional PDF, DOCX, TXT, Markdown, or pasted material for source-grounded questions. The default per-file limit is 20 MB, and the browser reads the active deployment limit from the server. PDF ingestion works on ordinary Node web hosts without Python and retains page-aware text, table rows, table/figure captions, embedded-figure metadata, and safely extractable figure bytes when available. Set `DEEPCHAT2LEARN_PYTHON_BIN` to the host's own Python executable with packages such as `pdfplumber` and/or `PyMuPDF` installed for stronger research-paper extraction. Without Python, text-based PDFs and Word/text materials remain supported through the Node fallback. Scanned-PDF OCR and visual figure interpretation are not included by default.
+- Optional PDF, DOCX, TXT, Markdown, or pasted material for source-grounded questions. The default per-file limit is 20 MB, and the browser reads the active deployment limit from the server. PDF ingestion works on ordinary Node web hosts without Python and retains page-aware text, table rows, table/figure captions, embedded-figure metadata, and safely extractable figure bytes when available. Set `DEEPCHAT2LEARN_PYTHON_BIN` to a Python executable with `pdfplumber` installed for stronger research-paper extraction; the Node fallback remains the required baseline. Scanned-PDF OCR and visual figure interpretation are not included.
 - Optional local audio recording of the active conversation. It requires a browser that supports `MediaRecorder` and an allowed microphone permission; if either is unavailable, the regular typed and voice controls still work but recording stays off. The recording never uploads to the server, never enters transcripts, and never becomes part of the session record.
 - Per-source digest preview; with `OPENAI_API_KEY`, digests are model-generated with evidence-validated key points and a safe extractive fallback.
 - Bundled `academic-research` and `academic-conversation` skills, plus the optional `epi-research` methods-review skill. Research skills digest supplied documents; academic conversation guides the live typed and voice dialogue.
@@ -127,7 +117,8 @@ Set `SQLITE_PATH=./data/deepchat2learn.sqlite` to persist sessions and supplied 
 - Voice conversation follows a focused continuous loop: start the session, speak the question, listen for the answer, wait five seconds after the final transcript, retrieve and digest source material when applicable, speak a concise answer with discussion help and a focused follow-up, then listen again.
 - Voice status announces listening, answer finalization, source retrieval/digestion, evaluation, and speaking phases. Temporary failures preserve the captured transcript for retry, while typed answers remain available as a fallback. During AI speech, microphone input is paused to prevent echo capture; the explicit Interrupt answer control cancels AI output before listening continues.
 - Realtime voice closes and reconnects transport independently from the academic session. Server-side VAD finalizes user speech after configured silence, while echo cancellation, noise suppression, and automatic gain control are requested from the browser.
-- Both practice and source conversations use only the compact academic-conversation guide for each dialogue turn. Full academic-research and epi-research guidance is reserved for source digestion or explicit review requests. Live model prompts send up to three bounded prior exchanges, a compact digest, and a small set of retrieved source passages; short retrieval follow-ups use only the two most immediate exchanges. A complete answer advances to a different related question; say “new question,” “ask something new,” or “another issue” to move on immediately. Source-review skills remain focused on digesting and reviewing supplied materials.
+- Mobile voice is capability-driven rather than tied to a particular phone, operating system, or browser. When Realtime is configured, mobile Start voice uses the WebRTC audio path even if browser SpeechRecognition is present or inconsistent; otherwise the app uses browser speech when available and keeps typed controls as the fallback. Permission prompts are requested sequentially, and a one-time page tap can unlock remote audio when a mobile browser blocks autoplay.
+- Both practice and source conversations use only the compact academic-conversation guide for each dialogue turn. Full academic-research and epi-research guidance is reserved for source digestion or explicit review requests. Live model prompts send at most two related prior turns, a compact digest, and a small set of retrieved source passages. A complete answer advances to a different related question; say “new question,” “ask something new,” or “another issue” to move on immediately. Source-review skills remain focused on digesting and reviewing supplied materials.
 - Voice timing and transcript size are configurable through `VOICE_AUTO_SUBMIT_DELAY_MS`, `VOICE_TRANSITION_DELAY_MS`, `VOICE_REALTIME_SILENCE_MS`, `VOICE_REALTIME_WATCHDOG_MS`, `VOICE_MAX_RECOGNITION_RETRIES`, and `VOICE_MAX_TRANSCRIPT_CHARACTERS`. The realtime watchdog defaults to `0` (disabled), so active speech is not cut off by elapsed time; silence/VAD remains the turn boundary. Model requests use `OPENAI_TEXT_TIMEOUT_MS`; source digestion uses the longer `OPENAI_SOURCE_DIGEST_TIMEOUT_MS` deadline and a bounded digest context. JSON request bodies default to 28 MB so a base64-encoded source can fit within the 20 MB per-file limit; adjust `MAX_REQUEST_BODY_BYTES` with the source limits if needed.
 - The recording UI is explicitly user-driven: the user must start recording, stop it, and choose whether to download the resulting file.
 - Practice sessions support up to 50 rounds; source-grounded sessions support up to 200 rounds.

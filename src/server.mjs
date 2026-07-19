@@ -51,7 +51,8 @@ const configuredCoach = process.env.OPENAI_API_KEY
   ? createResilientCoach(
     createModelCoach({
       apiKey: process.env.OPENAI_API_KEY,
-      timeoutByTask: { source_digest: configuredVoice.sourceDigestTimeoutMs }
+      timeoutMs: configuredVoice.textTimeoutMs,
+      sourceDigestTimeoutMs: configuredVoice.sourceDigestTimeoutMs
     }),
     createCoach(),
     {
@@ -86,7 +87,9 @@ const configuredModelGateway = process.env.OPENAI_API_KEY
     config: {
       timeoutMs: configuredVoice.textTimeoutMs,
       timeoutByTask: { source_digest: configuredVoice.sourceDigestTimeoutMs },
-      maxTransientRetries: 1
+      // Interactive turns already have a local academic fallback. Retrying a
+      // slow upstream request would only make the live conversation feel frozen.
+      maxTransientRetries: 0
     }
   })
   : null;
@@ -113,15 +116,6 @@ const securityHeaders = {
 function json(res, status, body) {
   res.writeHead(status, { ...securityHeaders, 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
   res.end(JSON.stringify(body));
-}
-
-function safeErrorDetails(error) {
-  const details = error?.details || {};
-  if (!String(error?.code || '').startsWith('REALTIME_')) return details;
-  const safe = {};
-  if (Number.isInteger(details.upstreamStatus)) safe.upstreamStatus = details.upstreamStatus;
-  if (typeof details.providerCode === 'string' && details.providerCode.trim()) safe.providerCode = details.providerCode.trim();
-  return safe;
 }
 
 function sourceMetrics(source) {
@@ -168,27 +162,6 @@ function token(req) {
 
 function recordLifecycle(recorder, event) {
   try { recorder?.record?.(event); } catch { /* optional diagnostics must never affect API behavior */ }
-}
-
-function markRealtimeConnection(connection, error = null) {
-  if (!connection) return;
-  if (!error) {
-    connection.state = 'available';
-    connection.lastError = null;
-    connection.upstreamStatus = null;
-    return;
-  }
-  if (error.code === 'REALTIME_NOT_CONFIGURED') {
-    connection.state = 'not_configured';
-    connection.lastError = null;
-    connection.upstreamStatus = null;
-    return;
-  }
-  connection.state = 'unavailable';
-  connection.lastError = error.code || 'REALTIME_ERROR';
-  connection.upstreamStatus = Number.isInteger(error.details?.upstreamStatus)
-    ? error.details.upstreamStatus
-    : null;
 }
 
 async function digestForSource(coach, source, skillProfile = null) {
@@ -364,8 +337,6 @@ async function handleApi(req, res, url, runtime = {}) {
   const researchAdapter = runtime.researchAdapter || configuredResearchAdapter;
   const skillRegistry = runtime.skillRegistry || configuredSkillRegistry;
   const lifecycleRecorder = runtime.lifecycleRecorder || null;
-  const realtimeSessionFactory = runtime.realtimeSessionFactory || createRealtimeSession;
-  const realtimeConnection = runtime.realtimeConnection || null;
   const orchestrator = runtime.orchestrator || createConversationOrchestrator({
     store,
     coach,
@@ -399,28 +370,16 @@ async function handleApi(req, res, url, runtime = {}) {
 
   if (method === 'POST' && url.pathname === '/api/realtime/session') {
     const session = store.requireAuthorized(payload.sessionId, token(req));
-    try {
-      const realtime = await realtimeSessionFactory({ apiKey: process.env.OPENAI_API_KEY, topic: session.topic, questionLimit: session.questionLimit });
-      markRealtimeConnection(realtimeConnection);
-      return json(res, 200, realtime);
-    } catch (error) {
-      markRealtimeConnection(realtimeConnection, error);
-      throw error;
-    }
+    const realtime = await createRealtimeSession({ apiKey: process.env.OPENAI_API_KEY, topic: session.topic, questionLimit: session.questionLimit });
+    return json(res, 200, realtime);
   }
 
   if (method === 'POST' && url.pathname === '/api/realtime/call') {
     const session = store.requireAuthorized(payload.sessionId, token(req));
-    try {
-      const call = modelGateway && typeof modelGateway.createRealtimeCall === 'function'
-        ? await modelGateway.createRealtimeCall({ session, sdp: payload.sdp, signal: null })
-        : await createRealtimeCall({ apiKey: process.env.OPENAI_API_KEY, sdp: payload.sdp, topic: session.topic, questionLimit: session.questionLimit });
-      markRealtimeConnection(realtimeConnection);
-      return json(res, 200, call);
-    } catch (error) {
-      markRealtimeConnection(realtimeConnection, error);
-      throw error;
-    }
+    const call = modelGateway && typeof modelGateway.createRealtimeCall === 'function'
+      ? await modelGateway.createRealtimeCall({ session, sdp: payload.sdp, signal: null })
+      : await createRealtimeCall({ apiKey: process.env.OPENAI_API_KEY, sdp: payload.sdp, topic: session.topic, questionLimit: session.questionLimit });
+    return json(res, 200, call);
   }
 
   if (parts[1] === 'voice' && parts[2] === 'sessions') {
@@ -459,19 +418,6 @@ async function handleApi(req, res, url, runtime = {}) {
     if (method === 'POST' && parts.length === 7 && parts[4] === 'turns' && parts[6] === 'interrupt') {
       const turn = (session.voiceTurns || []).find(item => item.id === parts[5]);
       if (!turn) throw new HttpError(404, 'Voice turn not found.', 'VOICE_TURN_NOT_FOUND');
-      let interruptStatus = turn.status;
-      if (turn.status === 'answered' || turn.status === 'pending') {
-        const interruptedTurn = {
-          ...turn,
-          status: 'interrupted',
-          interruptedAt: new Date().toISOString()
-        };
-        const turnIndex = session.voiceTurns.findIndex(item => item.id === turn.id);
-        if (turnIndex >= 0) session.voiceTurns[turnIndex] = interruptedTurn;
-        else session.voiceTurns.push(interruptedTurn);
-        store.save(session);
-        interruptStatus = interruptedTurn.status;
-      }
       assignVoiceState(session, 'listening');
       store.save(session);
       recordLifecycle(lifecycleRecorder, {
@@ -481,7 +427,7 @@ async function handleApi(req, res, url, runtime = {}) {
         status: session.voiceState,
         sourceCount: session.sources.length
       });
-      return json(res, 200, { state: session.voiceState, turn: { id: turn.id, status: interruptStatus } });
+      return json(res, 200, { state: session.voiceState, turn: { id: turn.id, status: turn.status } });
     }
 
     if (method === 'POST' && parts.length === 5 && parts[4] === 'pause') {
@@ -746,22 +692,10 @@ function extractSessionId(pathname) {
   return sessionMatch ? sessionMatch[1] : null;
 }
 
-const staticMimeTypes = Object.freeze({
-  '.css': 'text/css; charset=utf-8',
-  '.html': 'text/html; charset=utf-8',
-  '.ico': 'image/x-icon',
-  '.jpeg': 'image/jpeg',
-  '.jpg': 'image/jpeg',
-  '.js': 'text/javascript; charset=utf-8',
-  '.png': 'image/png',
-  '.svg': 'image/svg+xml',
-  '.webp': 'image/webp',
-  '.woff': 'font/woff',
-  '.woff2': 'font/woff2'
-});
-
 function mime(file) {
-  return staticMimeTypes[path.extname(file).toLowerCase()] || 'text/html; charset=utf-8';
+  if (file.endsWith('.css')) return 'text/css';
+  if (file.endsWith('.js')) return 'text/javascript';
+  return 'text/html';
 }
 
 async function serveStatic(res, pathname) {
@@ -769,7 +703,7 @@ async function serveStatic(res, pathname) {
   if (name.includes('..') || name.includes('\\')) throw new HttpError(404, 'Not found.', 'NOT_FOUND');
   try {
     const content = await fs.readFile(path.join(publicDir, name));
-    res.writeHead(200, { ...securityHeaders, 'content-type': mime(name) });
+    res.writeHead(200, { ...securityHeaders, 'content-type': `${mime(name)}; charset=utf-8` });
     res.end(content);
   } catch { throw new HttpError(404, 'Not found.', 'NOT_FOUND'); }
 }
@@ -782,7 +716,6 @@ export function createServer({
   researchAdapter: serverResearchAdapter = configuredResearchAdapter,
   skillRegistry: serverSkillRegistry = configuredSkillRegistry,
   lifecycleRecorder = null,
-  realtimeSessionFactory = createRealtimeSession,
   orchestrator: serverOrchestrator = createConversationOrchestrator({
     store: serverStore,
     coach: createDirectTextCoach(serverModelGateway, serverCoach),
@@ -797,17 +730,11 @@ export function createServer({
   }),
   logger = null
 } = {}) {
-  const realtimeConnection = {
-    state: process.env.OPENAI_API_KEY ? 'configured' : 'not_configured',
-    lastError: null,
-    upstreamStatus: null
-  };
   const server = http.createServer(async (req, res) => {
     const startedAt = Date.now();
     const url = new URL(req.url, 'http://localhost');
     let statusCode = 200;
     let errorCode = null;
-    let realtimeDiagnostics = null;
     try {
       if (req.method === 'GET' && url.pathname === '/api/health') {
         const sourceLimits = getSourceLimits();
@@ -821,9 +748,7 @@ export function createServer({
           },
           connection: {
             textModel: process.env.OPENAI_API_KEY ? 'configured' : 'local-demo',
-            realtimeVoice: realtimeConnection.state,
-            ...(realtimeConnection.lastError ? { realtimeLastError: realtimeConnection.lastError } : {}),
-            ...(realtimeConnection.upstreamStatus !== null ? { realtimeUpstreamStatus: realtimeConnection.upstreamStatus } : {})
+            realtimeVoice: process.env.OPENAI_API_KEY ? 'configured' : 'not_configured'
           },
           voice: configuredVoice,
           sourceLimits,
@@ -844,29 +769,20 @@ export function createServer({
         rateLimiter: serverRateLimiter,
          researchAdapter: serverResearchAdapter,
          skillRegistry: serverSkillRegistry,
-          lifecycleRecorder,
-          realtimeSessionFactory,
-          realtimeConnection,
-          orchestrator: serverOrchestrator
+         lifecycleRecorder,
+         orchestrator: serverOrchestrator
       });
       else await serveStatic(res, url.pathname);
     } catch (error) {
       const status = error instanceof HttpError ? error.status : 500;
       statusCode = status;
       errorCode = error.code || 'INTERNAL_ERROR';
-      const details = safeErrorDetails(error);
-      if (String(errorCode).startsWith('REALTIME_')) {
-        realtimeDiagnostics = {
-          ...(Number.isInteger(details.upstreamStatus) ? { upstreamStatus: details.upstreamStatus } : {}),
-          ...(details.providerCode ? { providerCode: details.providerCode } : {})
-        };
-      }
       json(res, status, {
-        ...(details.status ? { status: details.status } : {}),
+        ...(error.details?.status ? { status: error.details.status } : {}),
         error: {
           code: error.code || 'INTERNAL_ERROR',
           message: status === 500 ? 'Something went wrong. Try again.' : error.message,
-          ...details
+          ...(error.details || {})
         }
       });
     } finally {
@@ -878,9 +794,7 @@ export function createServer({
           statusCode: res.statusCode || statusCode,
           durationMs: Date.now() - startedAt,
           sessionId: extractSessionId(url.pathname),
-          errorCode,
-          ...(realtimeDiagnostics?.upstreamStatus !== undefined ? { realtimeUpstreamStatus: realtimeDiagnostics.upstreamStatus } : {}),
-          ...(realtimeDiagnostics?.providerCode ? { realtimeProviderCode: realtimeDiagnostics.providerCode } : {})
+          errorCode
         });
       }
     }

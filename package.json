@@ -10,7 +10,7 @@
     "start": "node src/server.mjs",
     "test": "node scripts/run-tests.mjs",
     "dev": "node --watch src/server.mjs",
-    "typecheck": "node --check public/app.js && node --check public/audioRecording.js && node --check src/config.mjs && node --check src/conversationAgenda.mjs && node --check src/conversationOrchestrator.mjs && node --check src/evidence.mjs && node --check src/fakeCoach.mjs && node --check src/lifecycleEvents.mjs && node --check src/modelCoach.mjs && node --check src/modelGateway.mjs && node --check src/rateLimit.mjs && node --check src/realtime.mjs && node --check src/researchAdapter.mjs && node --check src/server.mjs && node --check src/sourceIngestion.mjs && node --check src/sourceKnowledge.mjs && node --check src/sqliteStore.mjs && node --check src/store.mjs && node --check src/voiceSession.mjs && node --check src/voiceTranscript.mjs",
+    "typecheck": "node --check public/app.js && node --check public/audioRecording.js && node --check src/config.mjs && node --check src/conversationOrchestrator.mjs && node --check src/evidence.mjs && node --check src/fakeCoach.mjs && node --check src/lifecycleEvents.mjs && node --check src/modelCoach.mjs && node --check src/modelGateway.mjs && node --check src/rateLimit.mjs && node --check src/realtime.mjs && node --check src/researchAdapter.mjs && node --check src/server.mjs && node --check src/sourceIngestion.mjs && node --check src/sourceKnowledge.mjs && node --check src/sqliteStore.mjs && node --check src/store.mjs && node --check src/voiceSession.mjs",
     "verify": "npm run typecheck && npm test"
   }
 }

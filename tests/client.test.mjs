@@ -759,7 +759,7 @@ test('voice feedback speaks before the next question and recognition restarts on
 
 test('voice-first mode explicitly requests microphone permission before speaking', async () => {
   const app = await fs.readFile(new URL('../public/app.js', import.meta.url), 'utf8');
-  assert.match(app, /function requestMicrophoneAccess\(\)/);
+  assert.match(app, /function requestMicrophoneAccess\(\{ retainStream = false \} = \{\}\)/);
   assert.match(app, /navigator\.mediaDevices\.getUserMedia\(microphoneConstraints\)/);
   assert.match(app, /echoCancellation: true/);
   assert.match(app, /noiseSuppression: true/);
@@ -870,9 +870,20 @@ test('voice readiness messaging distinguishes browser audio from microphone perm
   assert.match(app, /navigator\.permissions\.query\(\{ name: 'microphone' \}\)/);
   assert.match(app, /permission\.state === 'granted'/);
   assert.match(app, /permission\.state === 'denied'/);
-  assert.match(app, /state\.localStream = reusableLocalStream \|\| await navigator\.mediaDevices\.getUserMedia\(microphoneConstraints\)/);
+  assert.match(app, /state\.localStream = reconnectStream \|\| reusableLocalStream \|\| await navigator\.mediaDevices\.getUserMedia\(microphoneConstraints\)/);
   assert.match(app, /setMicrophoneStatus\('available'\)/);
   assert.match(html, /browser-audio-note/);
+});
+
+test('mobile voice chooses configured Realtime when browser speech recognition is unavailable', async () => {
+  const app = await fs.readFile(new URL('../public/app.js', import.meta.url), 'utf8');
+  assert.match(app, /state\.realtimeConfigured = connection\?\.realtimeVoice === 'configured'/);
+  assert.match(app, /state\.realtimeConfigured && \(state\.isMobileBrowser \|\| !state\.recognition\)/);
+  assert.match(app, /const transport = preferRealtime \? 'realtime' : 'browser-fallback'/);
+  assert.match(app, /const microphoneReady = await requestMicrophoneAccess\(\);\s*const speechReady = microphoneReady && await primeBrowserSpeechRecognition\(\)/);
+  assert.match(app, /playsInline = true/);
+  assert.match(app, /tryPlayRemoteAudio\(\)/);
+  assert.match(app, /event\.streams\?\.\[0\]/);
 });
 
 test('voice and typed materials UI expose source-aware state, review, and recovery controls', async () => {

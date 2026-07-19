@@ -97,7 +97,7 @@ function normalizeRetrievedChunk(chunk) {
   };
 }
 
-function finalizeRetrievedChunks(query, chunks, limit, { recentChunkIds = [] } = {}) {
+function finalizeRetrievedChunks(query, chunks, limit) {
   const safeLimit = Math.min(Math.max(Number(limit) || 10, 1), 10);
   const queryTerms = lexicalTerms(query);
   if (!queryTerms.length) return [];
@@ -112,10 +112,7 @@ function finalizeRetrievedChunks(query, chunks, limit, { recentChunkIds = [] } =
     .filter(chunk => chunk.relevanceScore > 0)
     .sort((left, right) => right.relevanceScore - left.relevanceScore || left.start - right.start || left.id.localeCompare(right.id));
   const deduped = dedupeRetrievedChunks(ranked);
-  const recentIds = new Set((Array.isArray(recentChunkIds) ? recentChunkIds : []).map(String));
-  const fresh = deduped.filter(chunk => !recentIds.has(String(chunk.id)));
-  const candidates = fresh.length >= Math.min(safeLimit, deduped.length) ? fresh : deduped;
-  return diversifyChunks(candidates, safeLimit).map(normalizeRetrievedChunk);
+  return diversifyChunks(deduped, safeLimit).map(normalizeRetrievedChunk);
 }
 
 function collectWarnings(sources, extraWarnings = []) {
@@ -137,23 +134,10 @@ function collectWarnings(sources, extraWarnings = []) {
 
 function everyChunkMatchesAtLeastOneText(texts, chunkIds, chunkMap) {
   const normalizedTexts = texts.map(normalizeClaimText).filter(Boolean);
-  if (!normalizedTexts.length || !chunkIdsExist(chunkIds, chunkMap)) return false;
+  if (!normalizedTexts.length || !Array.isArray(chunkIds) || !chunkIds.length) return false;
   return chunkIds.every(chunkId => {
     const chunk = chunkMap.get(chunkId);
     return chunk && normalizedTexts.some(text => chunk.text.includes(text));
-  });
-}
-
-function chunkIdsExist(chunkIds, chunkMap) {
-  return Array.isArray(chunkIds) && chunkIds.length > 0 && chunkIds.every(chunkId => chunkMap.has(chunkId));
-}
-
-function claimMatchesAnyCitedChunk(texts, chunkIds, chunkMap) {
-  const normalizedTexts = texts.map(normalizeClaimText).filter(Boolean);
-  if (!normalizedTexts.length || !chunkIdsExist(chunkIds, chunkMap)) return false;
-  return chunkIds.some(chunkId => {
-    const chunk = chunkMap.get(chunkId);
-    return normalizedTexts.some(text => chunk.text.includes(text));
   });
 }
 
@@ -215,11 +199,10 @@ function validateModelDigest(digest, chunkMap) {
   const evidence = Array.isArray(digest?.evidence) ? digest.evidence : [];
   const conflicts = Array.isArray(digest?.conflicts) ? digest.conflicts : [];
   for (const point of keyPoints) {
-    const pointEvidence = normalizeClaimText(point?.evidence || point?.text);
-    if (!claimMatchesAnyCitedChunk([pointEvidence], point?.chunkIds, chunkMap)) return false;
+    if (!everyChunkMatchesAtLeastOneText([point?.text], point?.chunkIds, chunkMap)) return false;
   }
   for (const item of evidence) {
-    if (!claimMatchesAnyCitedChunk([item?.claim], item?.chunkIds, chunkMap)) return false;
+    if (!everyChunkMatchesAtLeastOneText([item?.claim], item?.chunkIds, chunkMap)) return false;
   }
   for (const item of conflicts) {
     const claims = Array.isArray(item?.claims) ? item.claims : [];
@@ -261,12 +244,7 @@ export async function buildConsolidatedDigest({ sources, chunks, coach, skillPro
   const safeChunks = Array.isArray(chunks) ? chunks : [];
   const extractiveFallback = warnings => buildExtractiveDigest({ sources: safeSources, chunks: safeChunks, warnings });
   if (!coach || typeof coach.buildConsolidatedDigest !== 'function') return extractiveFallback();
-  let candidate;
-  try {
-    candidate = await coach.buildConsolidatedDigest({ sources: safeSources, chunks: safeChunks, skillProfile });
-  } catch {
-    return extractiveFallback(['AI digest unavailable; using a source-text digest instead.']);
-  }
+  const candidate = await coach.buildConsolidatedDigest({ sources: safeSources, chunks: safeChunks, skillProfile });
   const chunkMap = new Map(safeChunks.map(chunk => [chunk.id, chunk]));
   if (!validateModelDigest(candidate, chunkMap)) {
     return extractiveFallback(['Model digest evidence could not be validated against exact chunk substrings, so this digest is partial.']);
@@ -283,13 +261,13 @@ export async function buildConsolidatedDigest({ sources, chunks, coach, skillPro
   };
 }
 
-export async function retrieveSourceChunks({ sessionId, query, limit = 10, store, session, recentChunkIds = [] }) {
+export async function retrieveSourceChunks({ sessionId, query, limit = 10, store, session }) {
   const safeLimit = Math.min(Math.max(Number(limit) || 10, 1), 10);
   const safeQuery = String(query || '').trim();
   if (!safeQuery) return [];
   if (store && typeof store.retrieveSourceChunks === 'function') {
     const rows = await store.retrieveSourceChunks(sessionId, safeQuery, Math.max(25, safeLimit * 5));
-    return finalizeRetrievedChunks(safeQuery, Array.isArray(rows) ? rows : [], safeLimit, { recentChunkIds });
+    return finalizeRetrievedChunks(safeQuery, Array.isArray(rows) ? rows : [], safeLimit);
   }
   const activeSession = session || store?.get?.(sessionId);
   if (!activeSession) throw new HttpError(404, 'Session not found.', 'SESSION_NOT_FOUND');
@@ -298,7 +276,7 @@ export async function retrieveSourceChunks({ sessionId, query, limit = 10, store
       ...chunk,
       sourceName: source.name
     })))
-  return finalizeRetrievedChunks(safeQuery, candidates, safeLimit, { recentChunkIds });
+  return finalizeRetrievedChunks(safeQuery, candidates, safeLimit);
 }
 
 export function getDigestStatus(sessionId, store) {
