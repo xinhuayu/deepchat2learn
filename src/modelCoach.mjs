@@ -26,6 +26,28 @@ function boundDigestChunks(chunks, maxChars = MAX_DIGEST_CONTEXT_CHARS) {
   return bounded;
 }
 
+function diversifyDigestContext(chunks, limit = 64) {
+  const groups = new Map();
+  for (const chunk of Array.isArray(chunks) ? chunks : []) {
+    const key = `${chunk?.sourceId || 'source'}|${chunk?.section || 'unsectioned'}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(chunk);
+  }
+  const selected = [];
+  let added = true;
+  while (selected.length < limit && added) {
+    added = false;
+    for (const list of groups.values()) {
+      const chunk = list.shift();
+      if (!chunk) continue;
+      selected.push(chunk);
+      added = true;
+      if (selected.length >= limit) break;
+    }
+  }
+  return selected;
+}
+
 function skillGuidance(skillProfile) {
   if (!skillProfile?.instructions) return '';
   const references = Object.entries(skillProfile.references || {})
@@ -98,6 +120,19 @@ function sourceAnswerSentences(value) {
     .filter(Boolean);
 }
 
+function sourceComparisonTokens(value) {
+  const stopWords = new Set(['about', 'after', 'among', 'because', 'before', 'being', 'could', 'does', 'from', 'have', 'into', 'later', 'more', 'other', 'paper', 'that', 'their', 'there', 'these', 'they', 'this', 'through', 'under', 'were', 'which', 'with']);
+  return new Set(normalizeSourceComparison(value).split(' ').filter(token => token.length >= 4 && !stopWords.has(token)));
+}
+
+function semanticSourceOverlap(left, right) {
+  const leftTokens = sourceComparisonTokens(left);
+  const rightTokens = sourceComparisonTokens(right);
+  if (leftTokens.size < 6 || rightTokens.size < 6) return 0;
+  const shared = [...leftTokens].filter(token => rightTokens.has(token)).length;
+  return shared / Math.min(leftTokens.size, rightTokens.size);
+}
+
 function sourceAnswerNeedsRevision(answer, { conversationHistory = [], sourceDigest = null } = {}) {
   const answerText = normalizeSourceComparison(answer?.answerText);
   if (!answerText) return false;
@@ -105,8 +140,9 @@ function sourceAnswerNeedsRevision(answer, { conversationHistory = [], sourceDig
     const priorText = normalizeSourceComparison(previous);
     if (!priorText) return false;
     if (answerText === priorText) return true;
-    return sourceAnswerSentences(answer?.answerText)
-      .some(sentence => normalizeSourceComparison(sentence) === priorText);
+    if (sourceAnswerSentences(answer?.answerText)
+      .some(sentence => normalizeSourceComparison(sentence) === priorText)) return true;
+    return semanticSourceOverlap(answer?.answerText, previous) >= 0.72;
   });
 }
 
@@ -615,6 +651,35 @@ function sourceDocumentArtifacts(source) {
   };
 }
 
+function fallbackInterpretation(userQuestion, chunk) {
+  const question = String(userQuestion || '').toLowerCase();
+  const section = String(chunk?.section || '').toLowerCase();
+  if (/why|design|method|how/.test(question)) {
+    return 'This matters because the study design determines what temporal or comparative conclusion the evidence can support.';
+  }
+  if (/limit|bias|weak|problem|caveat|uncertain/.test(question) || /discussion|limitation/.test(section)) {
+    return 'This is important because the limitation affects how confidently the finding can be interpreted and generalized.';
+  }
+  if (/who|population|sample|participant/.test(question)) {
+    return 'This identifies the population to which the paper’s finding most directly applies.';
+  }
+  if (/result|finding|effect|association|outcome|what happened/.test(question)) {
+    return 'The key implication is that this is evidence about the reported relationship, not automatically evidence of a causal effect.';
+  }
+  return 'The useful point is how this detail fits into the paper’s larger argument and its remaining uncertainty.';
+}
+
+function selectFallbackDigestText(userQuestion, sourceDigest) {
+  const points = Array.isArray(sourceDigest?.keyPoints) ? sourceDigest.keyPoints : [];
+  const terms = new Set(uniqueWords(userQuestion));
+  const ranked = points.map(point => {
+    const text = String(point?.text || point?.evidence || '').trim();
+    const score = uniqueWords(text).filter(term => terms.has(term)).length;
+    return { text, score };
+  }).filter(item => item.text).sort((left, right) => right.score - left.score);
+  return ranked[0]?.text || String(sourceDigest?.mainArgument || sourceDigest?.digestText || sourceDigest?.summary || '').trim();
+}
+
 function extractiveSourceFallback({ userQuestion, currentQuestion, turnRole, retrievedChunks, sourceDigest, generalKnowledgeAllowed, reason }) {
   const queryTerms = new Set(uniqueWords(userQuestion));
   const ranked = (Array.isArray(retrievedChunks) ? retrievedChunks : []).map(chunk => ({
@@ -637,11 +702,11 @@ function extractiveSourceFallback({ userQuestion, currentQuestion, turnRole, ret
       start: locator ? best.chunk.start + locator.start : best.chunk.start,
       end: locator ? best.chunk.start + locator.end : best.chunk.end
     };
-    const digestText = String(sourceDigest?.mainArgument || sourceDigest?.keyPoints?.[0]?.text || '').trim();
+    const digestText = selectFallbackDigestText(userQuestion, sourceDigest);
     const fallbackReason = String(reason || 'MODEL_OUTPUT_INVALID').trim();
     const answerText = digestText
-      ? `${digestText} The retrieved passage is relevant, but the live synthesis step did not complete, so I do not want to overstate what the paper shows.`
-      : 'I found a relevant passage, but the live synthesis step did not complete. I do not want to overstate what the paper shows without interpreting the evidence carefully.';
+      ? `${digestText} The relevant ${best.chunk.section || 'passage'} adds: ${excerpt} ${fallbackInterpretation(userQuestion, best.chunk)} The live synthesis step did not complete, so this is a limited evidence-based answer rather than a full interpretation.`
+      : `The relevant ${best.chunk.section || 'passage'} says: ${excerpt} ${fallbackInterpretation(userQuestion, best.chunk)} The live synthesis step did not complete, so this is a limited evidence-based answer.`;
     return {
       answerText,
       answerSpeechText: answerText,
@@ -655,8 +720,8 @@ function extractiveSourceFallback({ userQuestion, currentQuestion, turnRole, ret
         section: best.chunk.section ?? null
       }],
       llmBackground: generalKnowledgeAllowed ? ['No additional background was needed beyond the retrieved source passage.'] : [],
-      discussionPoints: [`Relevant source passage for review: ${excerpt}`, 'What evidence would strengthen or challenge this claim?'],
-      suggestions: ['Compare this passage with another section of the supplied material.'],
+      discussionPoints: [`Relevant source passage for review: ${excerpt}`, fallbackInterpretation(userQuestion, best.chunk)],
+      suggestions: ['Compare this point with a different section, table, or result in the supplied material.'],
       externalClaims: [],
       citations: [citation],
       externalCitations: [],
@@ -666,20 +731,20 @@ function extractiveSourceFallback({ userQuestion, currentQuestion, turnRole, ret
       uncertainty: [`The live source synthesis model did not complete (${fallbackReason}).`, 'The response uses the prepared digest and retrieved evidence without claiming a full interpretation.'],
       conflicts: sourceConflicts,
       academicAssessment: currentQuestion && turnRole === 'answer_to_ai' ? inferAcademicAssessment({ question: currentQuestion, answer: userQuestion }) : null,
-      followUp: 'Would you like me to compare this with another part of the source?',
+      followUp: sourceDigest?.openQuestions?.[0] || 'Which related section should we examine next?',
       modelStatus: 'fallback',
       modelFallbackReason: fallbackReason
     };
   }
-  const digestText = String(sourceDigest?.mainArgument || sourceDigest?.keyPoints?.[0]?.text || '').trim();
+  const digestText = selectFallbackDigestText(userQuestion, sourceDigest);
   if (digestText) {
-    const digestAnswer = `Based on the prepared source digest: ${digestText}`;
+    const digestAnswer = `The prepared source digest indicates that ${digestText} This is the paper-level interpretation available while a matching passage is unavailable. The live synthesis step did not complete, so I will keep the conclusion cautious and distinguish it from additional general knowledge.`;
     return {
       answerText: digestAnswer,
       answerSpeechText: digestAnswer,
       sourceClaims: [],
       llmBackground: [],
-      discussionPoints: ['We can verify this summary against a specific passage when retrieval is available.'],
+      discussionPoints: ['We can verify this paper-level point against a specific section, table, or result when retrieval is available.'],
       suggestions: ['Ask about a specific section, table, or result for a source citation.'],
       externalClaims: [],
       citations: [],
@@ -690,7 +755,7 @@ function extractiveSourceFallback({ userQuestion, currentQuestion, turnRole, ret
       uncertainty: [...new Set(['The answer uses the prepared digest because no matching passage was retrieved.', reason].filter(Boolean))],
       conflicts: sourceConflicts,
       academicAssessment: currentQuestion && turnRole === 'answer_to_ai' ? inferAcademicAssessment({ question: currentQuestion, answer: userQuestion }) : null,
-      followUp: 'Would you like to ask about a specific section or result?',
+      followUp: sourceDigest?.openQuestions?.[0] || 'Would you like to ask about a specific section, table, or result?',
       modelStatus: 'fallback',
       modelFallbackReason: String(reason || 'MODEL_OUTPUT_INVALID').trim()
     };
@@ -1069,12 +1134,12 @@ export function createModelCoach({ apiKey, model = defaultModel, fetchImpl = fet
           input: JSON.stringify({
             sources: sourceList,
             batchDigests,
-            chunks: safeChunks.map(chunk => ({
+            chunks: diversifyDigestContext(safeChunks).map(chunk => ({
               id: chunk.id,
               sourceId: chunk.sourceId,
               page: chunk.page ?? null,
               section: chunk.section ?? null,
-              text: pickSentence(String(chunk.text || '')).slice(0, 600)
+              text: String(chunk.text || '').slice(0, 1_200)
             }))
           })
         });

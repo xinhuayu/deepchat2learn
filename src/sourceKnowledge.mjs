@@ -97,7 +97,7 @@ function normalizeRetrievedChunk(chunk) {
   };
 }
 
-function finalizeRetrievedChunks(query, chunks, limit) {
+function finalizeRetrievedChunks(query, chunks, limit, { recentChunkIds = [] } = {}) {
   const safeLimit = Math.min(Math.max(Number(limit) || 10, 1), 10);
   const queryTerms = lexicalTerms(query);
   if (!queryTerms.length) return [];
@@ -112,7 +112,10 @@ function finalizeRetrievedChunks(query, chunks, limit) {
     .filter(chunk => chunk.relevanceScore > 0)
     .sort((left, right) => right.relevanceScore - left.relevanceScore || left.start - right.start || left.id.localeCompare(right.id));
   const deduped = dedupeRetrievedChunks(ranked);
-  return diversifyChunks(deduped, safeLimit).map(normalizeRetrievedChunk);
+  const recentIds = new Set((Array.isArray(recentChunkIds) ? recentChunkIds : []).map(String));
+  const fresh = deduped.filter(chunk => !recentIds.has(String(chunk.id)));
+  const candidates = fresh.length >= Math.min(safeLimit, deduped.length) ? fresh : deduped;
+  return diversifyChunks(candidates, safeLimit).map(normalizeRetrievedChunk);
 }
 
 function collectWarnings(sources, extraWarnings = []) {
@@ -280,13 +283,13 @@ export async function buildConsolidatedDigest({ sources, chunks, coach, skillPro
   };
 }
 
-export async function retrieveSourceChunks({ sessionId, query, limit = 10, store, session }) {
+export async function retrieveSourceChunks({ sessionId, query, limit = 10, store, session, recentChunkIds = [] }) {
   const safeLimit = Math.min(Math.max(Number(limit) || 10, 1), 10);
   const safeQuery = String(query || '').trim();
   if (!safeQuery) return [];
   if (store && typeof store.retrieveSourceChunks === 'function') {
     const rows = await store.retrieveSourceChunks(sessionId, safeQuery, Math.max(25, safeLimit * 5));
-    return finalizeRetrievedChunks(safeQuery, Array.isArray(rows) ? rows : [], safeLimit);
+    return finalizeRetrievedChunks(safeQuery, Array.isArray(rows) ? rows : [], safeLimit, { recentChunkIds });
   }
   const activeSession = session || store?.get?.(sessionId);
   if (!activeSession) throw new HttpError(404, 'Session not found.', 'SESSION_NOT_FOUND');
@@ -295,7 +298,7 @@ export async function retrieveSourceChunks({ sessionId, query, limit = 10, store
       ...chunk,
       sourceName: source.name
     })))
-  return finalizeRetrievedChunks(safeQuery, candidates, safeLimit);
+  return finalizeRetrievedChunks(safeQuery, candidates, safeLimit, { recentChunkIds });
 }
 
 export function getDigestStatus(sessionId, store) {

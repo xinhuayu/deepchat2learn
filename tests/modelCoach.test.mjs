@@ -609,6 +609,40 @@ test('source answers request one revision when the first draft only repeats the 
   assert.match(result.answerText, /selection|confounding|baseline cognition/i);
 });
 
+test('source answers request a revision when a paraphrase repeats the prior answer', async () => {
+  let calls = 0;
+  const coach = createModelCoach({
+    apiKey: 'test-key',
+    fetchImpl: async (_url, options) => {
+      calls += 1;
+      const answer = calls === 1
+        ? 'The paper examines cognitive decline and later health outcomes in older adults.'
+        : 'The important additional point is that the cohort design supports temporal ordering, but selection into repeated testing may still bias the association.';
+      return { ok: true, json: async () => ({ output_text: JSON.stringify({
+        answerText: answer,
+        answerSpeechText: answer,
+        sourceClaims: [{ claim: 'The study followed participants over time.', chunkId: 'paper:1', citationExcerpt: 'The study followed participants over time.' }],
+        citations: [{ sourceId: 'paper', chunkId: 'paper:1', excerpt: 'The study followed participants over time.' }],
+        llmBackground: [], discussionPoints: [], suggestions: [], externalClaims: [], externalCitations: [],
+        confidence: 'medium', uncertainty: [], conflicts: [], followUp: 'What source-selection issue should we examine next?'
+      }) }) };
+    }
+  });
+
+  const result = await coach.composeBlendedAnswer({
+    userQuestion: 'What else matters?',
+    currentQuestion: 'What is the paper about?',
+    sourceDigest: { mainArgument: 'The research evaluates aging-related outcomes.' },
+    retrievedChunks: [{ id: 'paper:1', sourceId: 'paper', sourceName: 'paper.pdf', text: 'The study followed participants over time.', start: 0, end: 43 }],
+    conversationHistory: [{ assistantResponse: 'The study explores cognitive decline and later health outcomes among older adults.' }],
+    generalKnowledgeAllowed: true,
+    externalResearchResult: { status: 'not_requested', results: [] }
+  });
+
+  assert.equal(calls, 2);
+  assert.match(result.answerText, /temporal ordering|selection/i);
+});
+
 test('source answer fallback identifies model failure without presenting an extractive quote as synthesis', async () => {
   const coach = createModelCoach({
     apiKey: 'test-key',

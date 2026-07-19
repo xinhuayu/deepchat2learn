@@ -74,6 +74,39 @@ test('lifecycle recorder keeps only safe normalized fields and returns an isolat
   assert.equal(recorder.snapshot()[0].status, 'failed');
 });
 
+test('lifecycle recorder keeps bounded model and retrieval diagnostics without raw content', () => {
+  const recorder = createLifecycleRecorder();
+  recorder.record({
+    event: 'response.completed',
+    sessionId: 'session-1',
+    mode: 'source',
+    status: 'speaking_answer',
+    modelStatus: 'fallback',
+    fallbackReason: 'MODEL_REQUEST_FAILED',
+    agendaStage: 'methods',
+    retrievedChunkCount: 2,
+    retrievedChunkIds: ['paper:1', 'paper:2', 'paper:3'],
+    requestDurationMs: 431,
+    idempotencyHash: 'hash-1',
+    prompt: 'must not be retained'
+  });
+
+  assert.deepEqual(recorder.snapshot()[0], {
+    event: 'response.completed',
+    timestamp: recorder.snapshot()[0].timestamp,
+    sessionId: 'session-1',
+    mode: 'source',
+    status: 'speaking_answer',
+    modelStatus: 'fallback',
+    fallbackReason: 'MODEL_REQUEST_FAILED',
+    agendaStage: 'methods',
+    retrievedChunkCount: 2,
+    retrievedChunkIds: ['paper:1', 'paper:2', 'paper:3'],
+    requestDurationMs: 431,
+    idempotencyHash: 'hash-1'
+  });
+});
+
 test('injected lifecycle recorder observes safe session, voice, source, digest, and response events', async () => {
   const recorder = createLifecycleRecorder({ maxEvents: 50 });
   const store = new InMemoryStore();
@@ -117,6 +150,11 @@ test('injected lifecycle recorder observes safe session, voice, source, digest, 
   assert.ok(names.includes('response.completed'));
   assert.ok(names.includes('source.extraction.completed'));
   assert.ok(names.includes('source.digest.completed'));
+  const responseEvent = events.find(event => event.event === 'response.completed');
+  assert.ok(responseEvent);
+  assert.equal(typeof responseEvent.requestDurationMs, 'number');
+  assert.equal(typeof responseEvent.idempotencyHash, 'string');
+  assert.ok('retrievedChunkCount' in responseEvent);
   assert.ok(events.every(event => !('transcript' in event) && !('rawAudio' in event) && !('prompt' in event)));
 });
 

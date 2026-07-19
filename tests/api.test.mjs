@@ -858,8 +858,8 @@ test('voice turn endpoint answers a spoken material question with the approved r
         transcriptReviewed: true
       })
     });
-    assert.equal(replay.status, 200);
-    assert.deepEqual(await replay.json(), body);
+    assert.equal(replay.status, 409);
+    assert.equal((await replay.json()).error.code, 'VOICE_IDEMPOTENCY_CONFLICT');
     assert.equal(store.get(created.session.id).voiceTurns.length, 1);
     assert.equal(store.get(created.session.id).modelTokensUsed, modelTokensAfterFirstTurn);
   } finally {
@@ -1179,8 +1179,8 @@ test('duplicate voice-turn replay after interruption cannot overwrite the newer 
         transcriptReviewed: false
       })
     });
-    assert.equal(replay.status, 200);
-    assert.deepEqual(await replay.json(), firstBody);
+    assert.equal(replay.status, 409);
+    assert.equal((await replay.json()).error.code, 'VOICE_IDEMPOTENCY_CONFLICT');
 
     const sessionResponse = await fetch(`${base}/api/sessions/${created.session.id}`, {
       headers: { 'x-session-token': created.token }

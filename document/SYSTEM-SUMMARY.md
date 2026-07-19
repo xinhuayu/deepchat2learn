@@ -258,19 +258,17 @@ Without an API key, local fallback coaching, typed interaction, browser speech, 
 ### Source comprehension
 
 5. Add optional OCR for scanned PDFs and a figure/table interpretation pipeline with explicit uncertainty labels.
-6. Add section-aware retrieval and diversity selection so consecutive turns do not retrieve the same passage.
-7. Show citations, page references, digest coverage, and source-versus-general-knowledge labels directly in the conversation UI.
+6. Show citations, page references, digest coverage, and source-versus-general-knowledge labels directly in the conversation UI.
 
 ### Product and safety
 
-8. Add authentication, per-user quotas, encrypted storage, and configurable deletion policies before public hosting.
-9. Add observability for latency, provider failures, audio state transitions, extraction quality, and fallback frequency without logging raw transcripts or keys.
-10. Add skill versioning and a settings view showing which conversation and source-digestion skills are active.
+7. Add authentication, per-user quotas, encrypted storage, and configurable deletion policies before public hosting.
+8. Add skill versioning and a settings view showing which conversation and source-digestion skills are active.
 
 ### Learning quality
 
-11. Add end-of-session concept maps, misconception summaries, and spaced follow-up questions.
-12. Add instructor-defined rubrics and paper-specific learning objectives without making every live turn run the full research-review workflow.
+9. Add end-of-session concept maps, misconception summaries, and spaced follow-up questions.
+10. Add instructor-defined rubrics and paper-specific learning objectives without making every live turn run the full research-review workflow.
 
 ## 13. Current audit status
 
@@ -278,9 +276,10 @@ The package was independently checked for conversation-first behavior, session i
 
 - Live dialogue uses `academic-conversation` in both modes. `academic-research` and `epi-research` are limited to source digestion and methods-oriented preparation.
 - Browser speech and configured Realtime audio share the same turn coordinator. AI audio disables microphone capture until playback ends; explicit interruption opens learner listening. Only finalized, cleaned transcripts are submitted.
-- Source answers combine a bounded paper-level digest, relevant retrieved evidence, the current learner turn, and at most three recent exchanges. The response must answer directly, paraphrase, label general knowledge, and advance the agenda.
+- Source answers combine a bounded paper-level digest, relevant retrieved evidence, the current learner turn, and at most three recent exchanges. The response must answer directly, paraphrase, label general knowledge, and advance the agenda. Retrieval now avoids reusing recently cited chunks when relevant alternatives exist, and semantic overlap checks request a new synthesis when a draft paraphrases a prior answer.
+- A changed transcript cannot replay a prior idempotency key. Safe response diagnostics record model status, fallback reason, agenda stage, retrieval counts/IDs, duration, and a short content hash without logging raw transcript, prompt, source text, or API keys.
 - Ordinary text tasks use the 120-second provider timeout; source digestion uses the configured 300-second timeout end to end, including the underlying model-coach request; Realtime initialization uses 120 seconds by default.
-- The current verification run passed syntax checks and 450 tests: 447 passed, 0 failed, and 3 optional Python-dependent PDF tests were skipped because the optional extractor was not available in the deterministic test environment.
-- The local test copy contains `.env` for provider-backed testing. Remove it before distributing the package; never include the key, source papers, transcripts, SQLite files, or recordings in a distribution archive.
+- The current verification run passed syntax checks and 454 tests: 451 passed, 0 failed, and 3 optional Python-dependent PDF tests were skipped because the optional extractor was not available in the deterministic test environment.
+- The local test copy may contain `.env` for provider-backed testing. Remove it before distributing the package; never include the key, source papers, transcripts, SQLite files, or recordings in a distribution archive.
 
 The remaining material risks are provider latency, browser permission and WebRTC variability, scanned-PDF/OCR limitations, and the absence of production authentication and multi-user isolation. These are deployment constraints rather than failures of the current local conversation flow.

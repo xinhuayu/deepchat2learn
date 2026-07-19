@@ -16,6 +16,10 @@ function recordLifecycle(recorder, event) {
   try { recorder?.record?.(event); } catch { /* optional diagnostics must never affect voice behavior */ }
 }
 
+function hashDiagnostic(value) {
+  return crypto.createHash('sha256').update(String(value || '')).digest('hex').slice(0, 16);
+}
+
 export const VOICE_SESSION_STATES = new Set([
   'idle',
   'permission_pending',
@@ -203,7 +207,16 @@ export async function answerVoiceTurn({
   const normalizedIdempotencyKey = normalizeOptionalString(idempotencyKey);
   if (normalizedIdempotencyKey && store?.getVoiceTurnReplay) {
     const replay = store.getVoiceTurnReplay(session, normalizedIdempotencyKey);
-    if (replay) return replay;
+    if (replay) {
+      const requestedTranscript = inputMode === 'voice'
+        ? cleanVoiceTranscript(transcript)
+        : String(transcript || '').trim();
+      const replayTranscript = String(replay.turn?.transcript || '').trim();
+      if (requestedTranscript !== replayTranscript) {
+        throw new HttpError(409, 'This idempotency key belongs to a different voice turn. Start a new turn with a new key.', 'VOICE_IDEMPOTENCY_CONFLICT');
+      }
+      return replay;
+    }
   }
 
   const cleanedTranscript = inputMode === 'voice' ? cleanVoiceTranscript(transcript) : String(transcript || '').trim();
@@ -227,14 +240,27 @@ export async function answerVoiceTurn({
     sourceCount: Array.isArray(session.sources) ? session.sources.length : 0,
     transcriptLength: turn.transcript.length
   });
+  const requestStartedAt = Date.now();
+  let retrievedChunks = [];
   const complete = result => {
+    const completedTurn = result?.turn || turn;
+    const modelStatus = result?.modelStatus || completedTurn?.modelStatus || null;
+    const fallbackReason = result?.modelFallbackReason || completedTurn?.modelFallbackReason || null;
+    const agenda = createSessionAgenda(session);
     recordLifecycle(lifecycleRecorder, {
       event: 'response.completed',
       sessionId: session.id,
       mode: session.sourceMode === 'source' ? 'source' : 'practice',
       status: result?.nextState || 'completed',
       sourceCount: Array.isArray(session.sources) ? session.sources.length : 0,
-      transcriptLength: turn.transcript.length
+      transcriptLength: turn.transcript.length,
+      modelStatus,
+      fallbackReason,
+      agendaStage: agenda.currentStage,
+      retrievedChunkCount: retrievedChunks.length,
+      retrievedChunkIds: retrievedChunks.map(chunk => chunk.id),
+      requestDurationMs: Date.now() - requestStartedAt,
+      idempotencyHash: hashDiagnostic(normalizedIdempotencyKey || turn.transcript)
     });
     return result;
   };
@@ -262,8 +288,15 @@ export async function answerVoiceTurn({
 
     const researchContext = normalizeExternalResearch(externalResearch);
     const sourceTurn = turn.intent === 'source_question' || turn.intent === 'source_answer';
-    const retrievedChunks = sourceTurn
-      ? await retrieveSourceChunks({ sessionId: session.id, query: buildSourceRetrievalQuery(session, turn.transcript), limit: 10, store, session })
+    retrievedChunks = sourceTurn
+      ? await retrieveSourceChunks({
+        sessionId: session.id,
+        query: buildSourceRetrievalQuery(session, turn.transcript),
+        limit: 10,
+        recentChunkIds: recentSourceChunkIds(session),
+        store,
+        session
+      })
       : [];
 
     const result = sourceTurn
@@ -388,6 +421,20 @@ function buildSourceRetrievalQuery(session, transcript) {
     .map(value => String(value || '').trim())
     .filter(Boolean)
     .join(' ');
+}
+
+function recentSourceChunkIds(session, limit = 4) {
+  const recent = [
+    ...(Array.isArray(session?.turns) ? session.turns.slice(-6) : []),
+    ...(Array.isArray(session?.voiceTurns) ? session.voiceTurns.slice(-6) : [])
+  ];
+  const ids = [];
+  for (const turn of recent) {
+    for (const citation of Array.isArray(turn?.citations) ? turn.citations : []) {
+      if (citation?.chunkId) ids.push(String(citation.chunkId));
+    }
+  }
+  return [...new Set(ids)].slice(-Math.max(1, Number(limit) || 4));
 }
 
 function buildConversationSourceDigest(session) {

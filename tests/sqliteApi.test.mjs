@@ -315,8 +315,8 @@ test('SQLite-backed voice turn endpoint persists the approved turn and replays d
         transcriptReviewed: true
       })
     });
-    assert.equal(replay.status, 200);
-    assert.deepEqual(await replay.json(), firstBody);
+    assert.equal(replay.status, 409);
+    assert.equal((await replay.json()).error.code, 'VOICE_IDEMPOTENCY_CONFLICT');
 
     const restored = store.get(created.session.id);
     assert.equal(restored.voiceTurns.length, 1);

@@ -678,6 +678,57 @@ test('answerVoiceTurn returns the approved source answer envelope and replays du
   assert.equal(session.voiceTurns.length, 1);
 });
 
+test('voice idempotency keys cannot replay an earlier answer for changed transcript content', async () => {
+  const session = {
+    id: 'voice-idempotency-content',
+    topic: 'Research methods',
+    sourceMode: 'none',
+    currentQuestion: 'What is the study design?',
+    turns: [],
+    voiceTurns: [],
+    voiceIdempotency: new Map(),
+    sources: []
+  };
+  const store = {
+    getVoiceTurnReplay(activeSession, key) { return activeSession.voiceIdempotency.get(key) || null; },
+    recordVoiceTurnResult(activeSession, key, result) {
+      const existing = activeSession.voiceIdempotency.get(key);
+      if (existing) return existing;
+      activeSession.voiceTurns.push(result.turn);
+      activeSession.voiceIdempotency.set(key, result);
+      return result;
+    }
+  };
+  const coach = {
+    async generalAnswer(question) {
+      return { answer: `Discussing ${question}.` };
+    }
+  };
+
+  await answerVoiceTurn({
+    session,
+    transcript: 'What is the study design?',
+    idempotencyKey: 'same-content-key',
+    externalResearch: { approved: false },
+    store,
+    coach,
+    skillRegistry: { get(id) { return { id, instructions: 'Use academic conversation guidance.' }; } }
+  });
+
+  await assert.rejects(
+    () => answerVoiceTurn({
+      session,
+      transcript: 'What was the study population?',
+      idempotencyKey: 'same-content-key',
+      externalResearch: { approved: false },
+      store,
+      coach,
+      skillRegistry: { get(id) { return { id, instructions: 'Use academic conversation guidance.' }; } }
+    }),
+    error => error?.code === 'VOICE_IDEMPOTENCY_CONFLICT'
+  );
+});
+
 test('source conversation evaluates an answer against the active question without switching to practice coaching', async () => {
   const session = {
     id: 'session-source-answer',

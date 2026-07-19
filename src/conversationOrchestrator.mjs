@@ -2,6 +2,7 @@ import { buildSessionSummary, countCompletedTurns, deriveSourceDigestStatus, ens
 import { answerVoiceTurn as defaultAnswerTurn, buildConversationHistory, detectVoiceIntent } from './voiceSession.mjs';
 import { resolveSkillSelection as defaultResolveSkillSelection } from './skillDetection.mjs';
 import { getDigestStatus as defaultReadDigestStatus } from './sourceKnowledge.mjs';
+import { cleanVoiceTranscript } from './voiceTranscript.mjs';
 import { maxQuestionsForSourceMode } from './config.mjs';
 import { createConversationAgenda } from './conversationAgenda.mjs';
 
@@ -304,7 +305,12 @@ export async function handleVoiceTurn({
   const normalizedIdempotencyKey = typeof payload.idempotencyKey === 'string' ? payload.idempotencyKey.trim() : '';
   if (normalizedIdempotencyKey && store?.getVoiceTurnReplay) {
     const replay = store.getVoiceTurnReplay(session, normalizedIdempotencyKey);
-    if (replay) return { ...replay, done: currentSessionTurnCount(session) >= session.questionLimit };
+    if (replay) {
+      if (cleanVoiceTranscript(payload.transcript) !== String(replay.turn?.transcript || '').trim()) {
+        throw new HttpError(409, 'This idempotency key belongs to a different voice turn. Start a new turn with a new key.', 'VOICE_IDEMPOTENCY_CONFLICT');
+      }
+      return { ...replay, done: currentSessionTurnCount(session) >= session.questionLimit };
+    }
   }
   if (typeof payload.transcript !== 'string' || payload.transcript.trim().length < 1) {
     throw new HttpError(400, 'Add a transcript before submitting.', 'TRANSCRIPT_REQUIRED');
@@ -371,6 +377,9 @@ export async function handleTypedQuestion({
   if (idempotencyKey && store?.getVoiceTurnReplay) {
     const replay = store.getVoiceTurnReplay(session, idempotencyKey);
     if (replay) {
+      if (String(payload.question).trim() !== String(replay.turn?.transcript || '').trim()) {
+        throw new HttpError(409, 'This idempotency key belongs to a different question. Start a new turn with a new key.', 'VOICE_IDEMPOTENCY_CONFLICT');
+      }
       return {
         ...replay,
         done: currentSessionTurnCount(session) >= session.questionLimit,

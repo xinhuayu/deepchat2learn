@@ -359,6 +359,30 @@ test('retrieveSourceChunks returns equivalent ordering for in-memory and SQLite 
   }
 });
 
+test('retrieveSourceChunks prefers an unused source section when relevant alternatives exist', async () => {
+  const session = {
+    id: 'session-diverse-retrieval',
+    sources: [{
+      id: 'paper',
+      name: 'Paper',
+      chunks: [
+        { id: 'paper:intro', sourceId: 'paper', sourceName: 'Paper', text: 'The authors identify a limitation. The authors identify another limitation in the introduction.', page: 1, section: 'Introduction', start: 0, end: 90 },
+        { id: 'paper:discussion', sourceId: 'paper', sourceName: 'Paper', text: 'The discussion addresses the limitation and explains its consequence for participants.', page: 8, section: 'Discussion', start: 91, end: 170 }
+      ]
+    }]
+  };
+
+  const matches = await retrieveSourceChunks({
+    sessionId: session.id,
+    query: 'What limitation did the authors identify?',
+    limit: 1,
+    recentChunkIds: ['paper:intro'],
+    store: { get(id) { return id === session.id ? session : null; } }
+  });
+
+  assert.equal(matches[0].id, 'paper:discussion');
+});
+
 test('fixture retrieval keeps complementary source evidence in the top 10 with exact excerpts', async () => {
   const fixture = await readFixture('complementary-sources.json');
   const sources = fixture.sources.map(materializeSource).map(source => ({
