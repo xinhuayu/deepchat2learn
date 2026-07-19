@@ -20,7 +20,7 @@ const BROWSER_CONVERSATION_STATES = [
 const microphoneConstraints = {
   audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
 };
-let state = { session: null, token: null, mode: 'practice', sourceLimits: { maxFiles: 10, maxFileBytes: 20_000_000 }, recognition: null, recognitionActive: false, speechRecognitionPriming: false, speechRecognitionReady: false, speechRecognitionPrimePromise: null, speechRecognitionPrimeResolve: null, speechRecognitionPrimeTimer: null, peer: null, localStream: null, dataChannel: null, remoteAudio: null, pendingSource: null, processedVoiceItems: new Set(), voiceReviewPending: false, voiceConversation: 'off', browserConversationState: 'idle', voiceAnnouncement: '', voiceSubmissionKey: null, voiceRecognitionSessionId: 0, voiceRecognitionAttempts: 0, voiceRecognitionRetryPending: false, transcript: [], materialHistory: [], summary: null, lastFeedback: null, lastSpokenLine: '' };
+let state = { session: null, token: null, mode: 'practice', sourceLimits: { maxFiles: 10, maxFileBytes: 20_000_000 }, recognition: null, recognitionActive: false, microphonePermission: 'unknown', speechRecognitionPermission: 'unavailable', speechRecognitionProbe: false, speechRecognitionProbePromise: null, speechRecognitionProbeResolve: null, speechRecognitionProbeTimer: null, isMobileBrowser: false, peer: null, localStream: null, dataChannel: null, remoteAudio: null, pendingSource: null, processedVoiceItems: new Set(), voiceReviewPending: false, voiceConversation: 'off', browserConversationState: 'idle', voiceAnnouncement: '', voiceSubmissionKey: null, voiceRecognitionSessionId: 0, voiceRecognitionAttempts: 0, voiceRecognitionRetryPending: false, transcript: [], materialHistory: [], summary: null, lastFeedback: null, lastSpokenLine: '' };
 let sourceProcessingTimers = [];
 let sourceDigestRequest = null;
 let recordingController = null;
@@ -28,8 +28,6 @@ let recordingOptIn = false;
 let recordingInputStream = null;
 let recordingInputBorrowed = false;
 let recordingRemoteStatusMessage = '';
-let speechPlaybackFallbackTimer = null;
-let speechPlaybackGeneration = 0;
 
 function formatRecordingElapsed(ms = 0) {
   const totalSeconds = Math.max(0, Math.floor(Number(ms || 0) / 1000));
@@ -289,11 +287,11 @@ async function loadServiceStatus() {
     const coach = connection?.textModel === 'configured'
       ? 'AI text coaching is configured.'
       : 'Local demo coach is active.';
-    const voice = connection?.realtimeVoice === 'configured' || connection?.realtimeVoice === 'available'
+    const voice = connection?.realtimeVoice === 'configured'
       ? ' Live AI voice is configured.'
-      : connection?.realtimeVoice === 'unavailable'
-        ? ' Live AI voice is temporarily unavailable. Browser voice input and spoken playback remain available.'
-        : ' Browser voice input and spoken playback remain available.';
+      : state.recognition
+        ? ' Browser voice input and spoken playback remain available.'
+        : ' This browser has no browser speech recognition. Use live AI voice when configured or type instead.';
     const storage = capabilities.storage === 'sqlite'
       ? ' Sessions use persistent storage.'
       : ' Sessions use lightweight in-memory storage.';
@@ -301,10 +299,10 @@ async function loadServiceStatus() {
       ? ` Default retention is ${privacy.defaultRetentionMode.replace('_', ' ')} and audio is ${privacy.audioStorage || 'never'} stored.`
       : '';
     status.textContent = `${coach}${voice}${storage}${privacyNote}`;
-    const browserAudioNote = $('#browser-audio-note');
-    if (browserAudioNote) browserAudioNote.textContent = 'Browser audio playback is available. On iPhone, tap Enable voice access and allow microphone and browser speech recognition if prompted.';
+    syncVoiceAccessSetup();
   } catch {
     status.textContent = 'Coaching service status is unavailable. You can still start a local session.';
+    syncVoiceAccessSetup();
   }
 }
 
@@ -326,36 +324,6 @@ function clearAdditionalSourceDraft() {
   $('#additionalSourceFile').value = '';
   $('#additionalSourceName').value = '';
   $('#additionalSourceText').value = '';
-}
-
-function resetConversationView() {
-  clearClientSession();
-  clearSourceProcessingTimers();
-  sourceDigestRequest = null;
-  state.session = null;
-  state.token = null;
-  state.transcript = [];
-  state.materialHistory = [];
-  state.summary = null;
-  state.lastFeedback = null;
-  state.lastSpokenLine = '';
-  state.voiceReviewPending = false;
-  $('#answerText').value = '';
-  $('#materialQuestion').value = '';
-  $('#materialAnswer').textContent = '';
-  $('#materialAnswer').classList.add('hidden');
-  $('#transcriptList').innerHTML = '';
-  $('#transcriptPanel').classList.add('hidden');
-  $('#sourceList').innerHTML = '';
-  $('#sourceDigest').innerHTML = '';
-  $('#sourceBadge').textContent = 'No sources yet';
-  $('#sourceStatus').textContent = '';
-  $('#sourceStatus').dataset.processing = 'false';
-  $('#sourceDigestStatus').textContent = '';
-  $('#additionalSourceStatus').textContent = '';
-  $('#feedbackEmpty').classList.remove('hidden');
-  $('#feedbackContent').classList.add('hidden');
-  $('#replayFeedback').disabled = true;
 }
 
 function clearSourceNameAutoMarker() {
@@ -428,35 +396,11 @@ function speak(text, { onend, onerror } = {}) {
     return;
   }
   setLastSpokenLine(text);
-  if (speechPlaybackFallbackTimer) {
-    window.clearTimeout(speechPlaybackFallbackTimer);
-    speechPlaybackFallbackTimer = null;
-  }
-  const generation = ++speechPlaybackGeneration;
-  let settled = false;
-  const finish = callback => {
-    if (settled || generation !== speechPlaybackGeneration) return;
-    settled = true;
-    if (speechPlaybackFallbackTimer) {
-      window.clearTimeout(speechPlaybackFallbackTimer);
-      speechPlaybackFallbackTimer = null;
-    }
-    callback?.();
-  };
   window.speechSynthesis.cancel();
   const utterance = new SpeechSynthesisUtterance(text);
-  utterance.onend = () => finish(onend);
-  utterance.onerror = () => finish(onerror);
+  utterance.onend = onend;
+  utterance.onerror = onerror;
   window.speechSynthesis.speak(utterance);
-  // Some mobile Safari versions can leave SpeechSynthesis speaking without
-  // delivering onend or onerror. Use a conservative estimate so voice input
-  // can resume, while allowing ordinary long answers to finish naturally.
-  const estimatedPlaybackMs = Math.min(90_000, Math.max(4_000, Math.ceil(String(text || '').length * 80) + 3_000));
-  speechPlaybackFallbackTimer = window.setTimeout(() => {
-    if (settled || generation !== speechPlaybackGeneration) return;
-    setVoiceAnnouncement('Audio playback did not report completion. Starting browser voice input now.');
-    finish(onend);
-  }, estimatedPlaybackMs);
 }
 
 function emitVoiceEvent(type, detail = {}) {
@@ -490,38 +434,7 @@ function clearVoiceCapture() {
 }
 
 function normalizeVoiceTranscript(value) {
-  const fillerWords = new Set(['um', 'uh', 'er', 'erm', 'hmm', 'mm', 'mm-hm']);
-  const comparisonToken = token => String(token || '').toLocaleLowerCase().replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '');
-  const tidyPunctuation = text => String(text || '')
-    .replace(/\s+([,.!?;:])/g, '$1')
-    .replace(/([,.!?;:]){2,}/g, '$1')
-    .replace(/([—–-])\s+/g, '$1')
-    .replace(/\s{2,}/g, ' ')
-    .trim();
-  const tokens = tidyPunctuation(String(value || '').replace(/\s+/g, ' ').trim())
-    .split(' ')
-    .filter(Boolean)
-    .map(token => token.replace(/(\p{L}[\p{L}\p{N}]*)([—–-])\1(?=$|[^\p{L}\p{N}])/giu, '$1$2'))
-    .filter(token => !fillerWords.has(comparisonToken(token)));
-  const output = [];
-  for (let index = 0; index < tokens.length;) {
-    let repeated = false;
-    for (let size = Math.min(4, output.length, tokens.length - index); size >= 1; size -= 1) {
-      const prior = output.slice(-size).map(comparisonToken);
-      const next = tokens.slice(index, index + size).map(comparisonToken);
-      if (prior.length === size && next.length === size && prior.every((token, offset) => token && token === next[offset])) {
-        if (size === 1 && output.length) {
-          const punctuation = String(tokens[index]).match(/[!?.,;:]+$/)?.[0];
-          if (punctuation) output[output.length - 1] = `${String(output[output.length - 1]).replace(/[!?.,;:]+$/, '')}${punctuation}`;
-        }
-        index += size;
-        repeated = true;
-        break;
-      }
-    }
-    if (!repeated) output.push(tokens[index++]);
-  }
-  return tidyPunctuation(output.join(' '));
+  return String(value || '').replace(/\s+/g, ' ').trim();
 }
 
 function mergeVoiceTranscript(previous, next) {
@@ -574,16 +487,17 @@ function collectVoiceRecognitionText(event) {
   beginRecognitionCycle(state.voiceRecognitionSessionId);
   let interim = '';
   let hasFinal = false;
-  for (let resultIndex = Math.max(0, baseIndex); resultIndex < results.length; resultIndex += 1) {
-    const result = results[resultIndex];
+  const fullResultList = results.length > baseIndex;
+  for (const [offset, result] of results.entries()) {
     const alternative = result?.[0];
     const text = normalizeVoiceTranscript(alternative?.transcript);
     if (!text) continue;
-    if (result?.isFinal !== true) {
+    if (alternative?.isFinal === false) {
       interim = text;
       continue;
     }
     hasFinal = true;
+    const resultIndex = fullResultList ? offset : baseIndex + offset;
     voiceCoordinator.captureCycleResults.set(resultIndex, text);
   }
   voiceCoordinator.captureInterim = interim;
@@ -629,22 +543,21 @@ function applyVoiceEventsState(event) {
     setVoiceConversationState('speaking');
   } else if (event.type === 'listening') {
     voiceCoordinator.state = 'listening';
-    if (!state.voiceReviewPending) clearTurnDraft();
     setLiveInputEnabled(true);
     setVoiceAnnouncement(event.transport === 'browser-fallback'
-      ? 'AI is listening... speak naturally and pause when you finish.'
-      : 'AI is listening... ask your question naturally and pause when you finish.');
+      ? 'Listening… speak naturally. I will keep listening until you pause.'
+      : 'Listening… ask your question naturally, then pause.');
     setVoiceConversationState('listening');
     setListeningState(true);
     armVoiceSilenceTimer();
   } else if (event.type === 'transcript_finalized') {
     voiceCoordinator.state = 'finalizing_transcript';
     clearVoiceSilenceTimer();
-    setVoiceAnnouncement('Answer captured. Preparing it for the academic conversation...');
+    setVoiceAnnouncement('Reviewing your spoken turn…');
     setTranscriptReviewMessage(`Transcript ready: ${event.transcript}`);
     setVoiceAnnouncement(state.mode === 'materials'
-      ? 'Answer captured. Processing the source material and composing an academic answer...'
-      : 'Answer captured. Processing and evaluating your answer...');
+      ? 'Retrieving relevant passages and digesting your spoken question...'
+      : 'Evaluating your spoken answer...');
     setVoiceConversationState('submitting');
   } else if (event.type === 'answer_approved') {
     voiceCoordinator.state = 'speaking_answer';
@@ -728,9 +641,9 @@ function defaultVoiceAnnouncement(browserState) {
   return {
     idle: 'Voice idle. You can still type below.',
     'ai-speaking': 'AI is speaking. You can interrupt at any time.',
-    listening: 'AI is listening... speak naturally, then pause when you finish.',
-    'user-speaking': 'AI is listening. Keep speaking until you finish.',
-    processing: 'Answer captured. Processing and evaluating it now...',
+    listening: 'Listening… speak naturally, then pause.',
+    'user-speaking': 'I can hear you. Keep going until you pause.',
+    processing: 'Reviewing your spoken turn…',
     'retryable-error': 'That voice turn can be retried. You can also type your answer instead.',
     paused: 'Voice conversation paused. You can still type.',
     completed: 'This session reached its question limit. You can review or end the session.'
@@ -752,11 +665,11 @@ function browserStateLabel(browserState) {
 
 function browserStateGuidance(browserState) {
   if (browserState === 'ai-speaking') return 'AI is speaking. Microphone input is paused to prevent echo capture. Press Interrupt answer if you need to take the floor.';
-  if (browserState === 'listening') return 'AI is listening for your answer. Speak naturally; a five-second pause submits the cleaned final transcript.';
-  if (browserState === 'user-speaking') return 'You are speaking. AI is listening; keep going until you finish, then pause.';
+  if (browserState === 'listening') return 'Listening for your answer. Speak naturally; a five-second pause submits the captured answer.';
+  if (browserState === 'user-speaking') return 'You are speaking. Keep going until you finish; the AI will respond after the pause.';
   if (browserState === 'retryable-error') return 'Your transcript stays in the text box. Retry the voice step or edit the text below. Press Ctrl+Enter or Cmd+Enter to submit a typed answer.';
   if (browserState === 'paused') return 'Voice is paused. You can resume voice or keep going by typing below.';
-  if (browserState === 'processing') return 'Your final transcript is captured. The AI is processing and evaluating the current turn; it will keep the answer available while it works.';
+  if (browserState === 'processing') return 'Please wait while I review the current turn. If voice fails, your transcript stays available for retry or typing.';
   return 'If voice is unavailable, type below. Press Ctrl+Enter or Cmd+Enter to submit a typed answer.';
 }
 
@@ -842,7 +755,6 @@ function renderBrowserConversationState() {
   if (voiceState) {
     voiceState.textContent = announcement;
     voiceState.setAttribute('aria-label', `Voice state: ${browserStateLabel(browserState)}. ${announcement}`);
-    voiceState.setAttribute('aria-busy', String(processing));
     applyVoiceStateClasses(voiceState, browserState);
   }
   if (voiceStateLabel) voiceStateLabel.textContent = `Voice state: ${browserStateLabel(browserState)}`;
@@ -978,12 +890,9 @@ function renderLlmContextSection(approved) {
   const copy = approved.knowledgeLayers.includes('source')
     ? 'General LLM background helped connect the source-supported answer, but it is separate from your cited materials.'
     : 'This answer relies on general LLM background knowledge rather than a supplied source passage.';
-  const backgroundMarkup = approved.llmBackground?.length
-    ? `<ul>${approved.llmBackground.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`
-    : '';
   return renderEvidenceDisclosure({
     label: 'General LLM context',
-    body: `<p>${escapeHtml(copy)}</p>${backgroundMarkup}`,
+    body: `<p>${escapeHtml(copy)}</p>`,
     tone: 'llm'
   });
 }
@@ -1027,17 +936,16 @@ function buildApprovedSpeechRequest(answerSpeechText, externalResearchSpeechText
   };
 }
 
-function speakLayeredAnswer({ answerSpeechText, externalResearchSpeechText, oncomplete, onerror } = {}) {
+function speakLayeredAnswer({ answerSpeechText, externalResearchSpeechText, oncomplete } = {}) {
   const primary = String(answerSpeechText || '').trim();
   const external = String(externalResearchSpeechText || '').trim();
   if (!primary) return;
   if (!external) {
-    speak(primary, { onend: oncomplete, onerror });
+    speak(primary, { onend: oncomplete });
     return;
   }
   speak(primary, {
-    onend: () => speak(external, { onend: oncomplete, onerror }),
-    onerror
+    onend: () => speak(external, { onend: oncomplete })
   });
 }
 
@@ -1068,9 +976,6 @@ function normalizeApprovedAnswerResult(result) {
     citations,
     externalCitations: result?.externalCitations || [],
     externalKnowledgeStatus: result?.externalKnowledgeStatus || 'not_requested',
-    modelStatus: result?.modelStatus || '',
-    modelFallbackReason: result?.modelFallbackReason || '',
-    llmBackground: Array.isArray(result?.llmBackground) ? result.llmBackground.map(String).filter(Boolean) : [],
     discussionPoints: Array.isArray(result?.discussionPoints) ? result.discussionPoints.map(String).filter(Boolean) : [],
     suggestions: Array.isArray(result?.suggestions) ? result.suggestions.map(String).filter(Boolean) : [],
     academicAssessment: result?.academicAssessment || null,
@@ -1093,7 +998,6 @@ function renderApprovedAnswer(result) {
   const warnings = [];
   if (approved.sourceDigestStatus) warnings.push(approved.sourceDigestStatus);
   if (approved.requiresExternalConsent) warnings.push('External research needs your approval before I look beyond your materials.');
-  if (approved.modelStatus === 'fallback') warnings.push(`Live source synthesis was unavailable${approved.modelFallbackReason ? ` (${approved.modelFallbackReason})` : ''}; the answer is marked as a fallback.`);
   if (approved.ingestionWarnings?.length) warnings.push(...approved.ingestionWarnings);
   if (approved.unsupportedOrUnresolved?.length) warnings.push(...approved.unsupportedOrUnresolved);
   const conflictMarkup = approved.conflicts?.length
@@ -1133,7 +1037,7 @@ const voiceCoordinator = {
   resumeTimer: null,
   completionTimer: null,
   silenceTimer: null,
-    voiceSubmitTimer: null,
+  voiceSubmitTimer: null,
   pendingTranscript: null,
   captureSegments: [],
   captureCycleResults: new Map(),
@@ -1147,34 +1051,26 @@ const voiceCoordinator = {
   preserveUserSpeakingUntilNextResult: false,
   lastTranscriptKey: null,
   lastTurnId: null,
-  start: async ({ transport = 'browser-fallback', reconnecting = false, speechRecognitionPrime = null } = {}) => {
+  start: async ({ transport = 'browser-fallback', reconnecting = false } = {}) => {
     if (!state.session) throw new Error('Start a session before using voice.');
     if (transport === 'browser-fallback' && !state.recognition) throw new Error('Speech recognition is unavailable in this browser.');
-    if (speechRecognitionPrime) {
-      const primed = await speechRecognitionPrime;
-      if (!primed && transport === 'browser-fallback') {
-        throw new Error('Browser speech recognition did not start. Tap Speak answer and allow browser speech recognition when prompted.');
-      }
-    }
     voiceCoordinator.active = true;
     if (voiceCoordinator.standaloneListening) stopSpeechRecognition();
     voiceCoordinator.standaloneListening = false;
     voiceCoordinator.transport = transport;
     voiceCoordinator.state = reconnecting ? voiceCoordinator.state : 'permission_pending';
     voiceCoordinator.shouldAutoResume = true;
-    if (transport === 'realtime' && !reconnecting) ensureRemoteAudioElement({ prime: true });
     clearVoiceSilenceTimer();
     clearVoiceAutoSubmitTimer();
     clearVoiceReconnectTimer();
     clearVoiceResumeTimer();
     clearVoiceCompletionTimer();
     emitAndApplyVoiceEvent('permission_pending', { transport });
-    const microphoneAccess = requestMicrophoneAccess();
-    if (!await microphoneAccess) {
+    await api(`/api/voice/sessions/${state.session.id}/start`, { method: 'POST' }).catch(() => null);
+    if (!await requestMicrophoneAccess()) {
       voiceCoordinator.active = false;
       throw new Error('Microphone access could not be started.');
     }
-    await api(`/api/voice/sessions/${state.session.id}/start`, { method: 'POST' }).catch(() => null);
     if (transport === 'realtime') {
       await openRealtimeVoiceTransport({ reconnecting });
     }
@@ -1187,14 +1083,7 @@ const voiceCoordinator = {
       speak(state.session.currentQuestion, { onend: () => {
         emitAndApplyVoiceEvent('speech_ended', { questionPrompt: true });
       },
-      onerror: () => {
-        if (voiceCoordinator.transport === 'browser-fallback' && voiceCoordinator.active && voiceCoordinator.shouldAutoResume) {
-          setVoiceAnnouncement('Audio playback was unavailable. Starting browser voice input now.');
-          voiceCoordinator.resume().catch(error => setVoiceConversationError(error?.message || 'Browser voice input could not start.'));
-        } else {
-          emitAndApplyVoiceEvent('recoverable_error', { message: 'Question playback stopped.' });
-        }
-      }
+      onerror: () => emitAndApplyVoiceEvent('recoverable_error', { message: 'Question playback stopped.' })
       });
       emitAndApplyVoiceEvent('speech_started', { questionPrompt: true });
       return;
@@ -1256,22 +1145,8 @@ const voiceCoordinator = {
     await api(`/api/voice/sessions/${state.session.id}/resume`, { method: 'POST' }).catch(() => null);
   },
   interrupt: async ({ bargeIn = false } = {}) => {
-    const interruptedTurnId = voiceCoordinator.lastTurnId;
-    voiceCoordinator.runId += 1;
     clearVoiceSilenceTimer();
     clearVoiceAutoSubmitTimer();
-    clearVoiceCapture();
-    voiceCoordinator.failedTranscript = null;
-    voiceCoordinator.lastTranscriptKey = null;
-    voiceCoordinator.lastTurnId = null;
-    state.voiceSubmissionKey = null;
-    state.voiceReviewPending = false;
-    clearTurnDraft();
-    const interruptedAnswer = $('#materialAnswer');
-    if (interruptedAnswer) {
-      interruptedAnswer.classList.add('hidden');
-      interruptedAnswer.innerHTML = '';
-    }
     const preserveBrowserRecognition = bargeIn
       && voiceCoordinator.transport === 'browser-fallback'
       && Boolean(state.recognition?.started);
@@ -1282,8 +1157,8 @@ const voiceCoordinator = {
       state.dataChannel.send(JSON.stringify({ type: 'response.cancel' }));
       state.dataChannel.send(JSON.stringify({ type: 'output_audio_buffer.clear' }));
     }
-    if (state.session?.id && interruptedTurnId) {
-      await api(`/api/voice/sessions/${state.session.id}/turns/${interruptedTurnId}/interrupt`, { method: 'POST' }).catch(() => null);
+    if (state.session?.id && voiceCoordinator.lastTurnId) {
+      await api(`/api/voice/sessions/${state.session.id}/turns/${voiceCoordinator.lastTurnId}/interrupt`, { method: 'POST' }).catch(() => null);
     }
     if (bargeIn) {
       voiceCoordinator.state = 'listening';
@@ -1291,7 +1166,7 @@ const voiceCoordinator = {
       voiceCoordinator.preserveUserSpeakingUntilNextResult = voiceCoordinator.transport === 'browser-fallback';
       setLiveInputEnabled(true);
       setListeningState(true);
-      if (!preserveBrowserRecognition && voiceCoordinator.transport === 'browser-fallback') startVoiceListening({ preserveCapture: false });
+      if (!preserveBrowserRecognition && voiceCoordinator.transport === 'browser-fallback') startVoiceListening({ preserveCapture: true });
       transitionBrowserConversationState('user-speaking', {
         legacyMode: 'listening',
         announcement: 'I can hear you. Your interruption is taking priority.'
@@ -1305,7 +1180,7 @@ const voiceCoordinator = {
     if (!trimmed || !state.session?.id) return;
     clearVoiceAutoSubmitTimer();
     voiceCoordinator.pendingTranscript = { transcript: trimmed, confidence, reviewed, itemKey };
-    setVoiceAnnouncement(`Answer captured. I will submit it after ${Math.round(voicePolicy.autoSubmitDelayMs / 1000)} seconds of silence, then process and evaluate it.`);
+    setVoiceAnnouncement(`Answer captured. I will submit it after ${Math.round(voicePolicy.autoSubmitDelayMs / 1000)} seconds of silence.`);
     voiceCoordinator.scheduleTranscriptSubmission();
   },
   scheduleTranscriptSubmission: () => {
@@ -1315,11 +1190,6 @@ const voiceCoordinator = {
       voiceCoordinator.voiceSubmitTimer = null;
       voiceCoordinator.pendingTranscript = null;
       if (pending && (state.voiceConversation === 'listening' || voiceCoordinator.standaloneListening) && !state.voiceReviewPending) {
-        if (pending.reviewed) {
-          presentVoiceTranscriptForReview(pending.transcript);
-          stopSpeechRecognition();
-          return null;
-        }
         const submission = voiceCoordinator.submitTranscript(pending);
         submission?.catch?.(error => notifyError(error));
         stopSpeechRecognition();
@@ -1335,7 +1205,7 @@ const voiceCoordinator = {
       window.clearTimeout(voiceCoordinator.voiceSubmitTimer);
       voiceCoordinator.voiceSubmitTimer = null;
     }
-    setVoiceAnnouncement(`Answer captured. I will submit it after ${Math.round(voicePolicy.autoSubmitDelayMs / 1000)} seconds of silence, then process and evaluate it.`);
+    setVoiceAnnouncement(`Answer captured. I will submit it after ${Math.round(voicePolicy.autoSubmitDelayMs / 1000)} seconds of silence.`);
     voiceCoordinator.scheduleTranscriptSubmission();
   },
   submitTranscript: async ({ transcript, confidence, reviewed, itemKey } = {}) => {
@@ -1362,8 +1232,8 @@ const voiceCoordinator = {
     let result;
     try {
       setVoiceAnnouncement(state.mode === 'materials'
-        ? 'AI is processing the source digest and composing a meaningful academic response...'
-        : 'AI is processing and evaluating your answer, then preparing the next question...');
+        ? 'Retrieving relevant passages, digesting the material, and composing an academic response...'
+        : 'Evaluating your answer and preparing the next question...');
       result = await sendVoiceTurn(transcriptKey);
       if (result?.requiresExternalConsent && await requestExternalResearchConsent()) {
         result = await sendVoiceTurn(`${transcriptKey}:research-approved`);
@@ -1398,9 +1268,8 @@ const voiceCoordinator = {
     }
     if (result.followUp && !result.done) {
       state.session.currentQuestion = result.followUp;
-      renderQuestionKeepingDraft(result.followUp);
+      renderQuestion(result.followUp);
     }
-    if (result.closeRequested) setVoiceAnnouncement('Conversation closing. Preparing your summary and download options...');
     persistClientSession();
     emitAndApplyVoiceEvent('answer_approved', { answerSpeechText: result.answerSpeechText, result });
     voiceCoordinator.externalResearchSpeechText = buildExternalResearchSpeech(result.externalCitations || []);
@@ -1426,14 +1295,6 @@ const voiceCoordinator = {
           voiceCoordinator.state = 'idle';
           setVoiceConversationState('off');
         }
-      },
-      onerror: () => {
-        if (voiceCoordinator.transport === 'browser-fallback' && voiceCoordinator.active && voiceCoordinator.shouldAutoResume) {
-          setVoiceAnnouncement('Audio playback was unavailable. Starting browser voice input now.');
-          voiceCoordinator.resume().catch(error => setVoiceConversationError(error?.message || 'Browser voice input could not start.'));
-        } else {
-          emitAndApplyVoiceEvent('recoverable_error', { message: 'Answer playback stopped.' });
-        }
       }
     });
   }
@@ -1448,22 +1309,9 @@ voiceCoordinator.scheduleResume = () => {
   }, voicePolicy.transitionDelayMs);
 };
 
-function clearTurnDraft() {
-  $('#answerText').value = '';
-  $('#materialQuestion').value = '';
-}
-
 function renderQuestion(question) {
-  return renderQuestionWithDraftPolicy(question, true);
-}
-
-function renderQuestionKeepingDraft(question) {
-  return renderQuestionWithDraftPolicy(question, false);
-}
-
-function renderQuestionWithDraftPolicy(question, clearAnswer) {
-  $('#questionText').textContent = String(question || '').trim();
-  if (clearAnswer) clearTurnDraft();
+  $('#questionText').textContent = question;
+  $('#answerText').value = '';
   const currentQuestion = state.session.turnCount + 1;
   const questionLimit = state.session.questionLimit;
   $('#progressLabel').textContent = `Question ${currentQuestion} of ${questionLimit}`;
@@ -1529,6 +1377,51 @@ function setVoiceConversationError(message) {
   if (!paused) returnFocusToRecoveryControl({ preferRetry: Boolean(voiceCoordinator.failedTranscript || state.voiceReviewPending) });
 }
 
+function detectMobileBrowser() {
+  const userAgent = String(navigator.userAgent || '');
+  const touchMac = navigator.platform === 'MacIntel' && Number(navigator.maxTouchPoints || 0) > 1;
+  return /Android|iPhone|iPad|iPod|Mobile/i.test(userAgent) || touchMac;
+}
+
+function setBrowserAudioNote(message, busy = false) {
+  const note = $('#browser-audio-note');
+  if (!note) return;
+  note.textContent = message;
+  note.setAttribute('aria-busy', String(busy));
+}
+
+function setSpeechRecognitionPermission(status) {
+  state.speechRecognitionPermission = status;
+  syncVoiceAccessSetup();
+}
+
+function syncVoiceAccessSetup() {
+  const panel = $('#voicePermissionSetup');
+  if (!panel) return;
+  state.isMobileBrowser = detectMobileBrowser();
+  const supported = Boolean(state.recognition);
+  const microphoneReady = state.microphonePermission === 'granted';
+  const speechReady = state.speechRecognitionPermission === 'granted';
+  const needsPreflight = state.isMobileBrowser && supported && (!microphoneReady || !speechReady);
+  panel.classList.toggle('hidden', !needsPreflight);
+  panel.setAttribute('aria-hidden', String(!needsPreflight));
+  const button = $('#prepareVoiceButton');
+  if (button) button.disabled = !needsPreflight || state.speechRecognitionProbe;
+  if (!state.isMobileBrowser) {
+    setBrowserAudioNote('Voice access will be requested when you start voice.');
+  } else if (!supported) {
+    setBrowserAudioNote('This browser does not provide browser speech recognition. Live AI voice can work when configured; typing remains available.');
+  } else if (microphoneReady && speechReady) {
+    setBrowserAudioNote('Mobile voice access is ready.');
+  } else if (state.microphonePermission === 'denied') {
+    setBrowserAudioNote('Allow microphone access in the browser settings, then tap Enable voice access.');
+  } else if (state.speechRecognitionPermission === 'denied') {
+    setBrowserAudioNote('Allow browser speech recognition when prompted, then tap Enable voice access again.');
+  } else {
+    setBrowserAudioNote('Allow microphone and browser speech recognition when prompted.');
+  }
+}
+
 function setMicrophoneStatus(status, message = '') {
   const element = $('#microphoneStatus');
   if (!element) return;
@@ -1539,16 +1432,77 @@ function setMicrophoneStatus(status, message = '') {
     denied: 'Microphone unavailable: access was denied. Allow it in the browser address bar and try again.',
     unavailable: 'Microphone unavailable: this browser could not access a microphone.'
   };
+  state.microphonePermission = status === 'available'
+    ? 'granted'
+    : status === 'denied'
+      ? 'denied'
+      : status === 'unavailable'
+        ? 'unavailable'
+        : 'unknown';
   element.className = `microphone-status ${status}`;
   element.dataset.status = status;
   element.textContent = message || copy[status] || copy.unknown;
+  syncVoiceAccessSetup();
 }
 
-function setBrowserAudioNote(message, busy = false) {
-  const element = $('#browser-audio-note');
-  if (!element) return;
-  element.textContent = message;
-  element.setAttribute('aria-busy', String(busy));
+function finishSpeechRecognitionProbe(success) {
+  if (!state.speechRecognitionProbe && !state.speechRecognitionProbeResolve) return;
+  const resolve = state.speechRecognitionProbeResolve;
+  if (state.speechRecognitionProbeTimer) window.clearTimeout(state.speechRecognitionProbeTimer);
+  state.speechRecognitionProbe = false;
+  state.speechRecognitionProbeResolve = null;
+  state.speechRecognitionProbePromise = null;
+  state.speechRecognitionProbeTimer = null;
+  setSpeechRecognitionPermission(success ? 'granted' : 'denied');
+  resolve?.(success);
+  if (success && state.recognition?.started) {
+    try { state.recognition.stop(); } catch { /* Recognition may already be ending. */ }
+  }
+}
+
+function primeBrowserSpeechRecognition() {
+  if (!state.recognition) {
+    setSpeechRecognitionPermission('unavailable');
+    return Promise.resolve(false);
+  }
+  if (state.speechRecognitionPermission === 'granted') return Promise.resolve(true);
+  if (state.speechRecognitionProbePromise) return state.speechRecognitionProbePromise;
+  state.speechRecognitionProbe = true;
+  state.speechRecognitionProbePromise = new Promise(resolve => {
+    state.speechRecognitionProbeResolve = resolve;
+    try {
+      state.recognition.start();
+    } catch {
+      finishSpeechRecognitionProbe(false);
+      return;
+    }
+    state.speechRecognitionProbeTimer = window.setTimeout(() => finishSpeechRecognitionProbe(false), 3000);
+  });
+  return state.speechRecognitionProbePromise;
+}
+
+async function prepareVoiceAccess() {
+  const button = $('#prepareVoiceButton');
+  if (!button) return;
+  button.disabled = true;
+  button.textContent = 'Checking voice accessâ€¦';
+  setBrowserAudioNote('Please allow microphone and browser speech recognition if your browser asks.', true);
+  const [microphoneReady, speechReady] = await Promise.all([
+    requestMicrophoneAccess(),
+    primeBrowserSpeechRecognition()
+  ]);
+  if (microphoneReady && speechReady) {
+    setBrowserAudioNote('Mobile voice access is ready. You can start a voice conversation.');
+  } else if (microphoneReady && !state.recognition) {
+    setBrowserAudioNote('Microphone access is ready. This browser has no browser speech recognition; use live AI voice when configured or type instead.');
+  } else if (microphoneReady) {
+    setBrowserAudioNote('Microphone access is ready, but browser speech recognition still needs permission.');
+  } else {
+    setBrowserAudioNote('Microphone access is still needed. Allow it in the browser settings and try again.');
+  }
+  syncVoiceAccessSetup();
+  button.textContent = 'Enable voice access';
+  button.disabled = false;
 }
 
 async function refreshMicrophoneStatus() {
@@ -1568,16 +1522,14 @@ async function refreshMicrophoneStatus() {
   }
 }
 
-async function requestMicrophoneAccess({ reportError = true } = {}) {
+async function requestMicrophoneAccess() {
   if (!navigator.mediaDevices?.getUserMedia) {
-    const message = 'This browser cannot request microphone access.';
+    setVoiceConversationError('This browser cannot request microphone access.');
     setMicrophoneStatus('unavailable');
-    if (reportError) setVoiceConversationError(message);
-    else setBrowserAudioNote(message);
     return false;
   }
   setMicrophoneStatus('checking');
-  if (reportError) setVoiceAnnouncement('Please allow microphone access when your browser asks.');
+  setVoiceAnnouncement('Please allow microphone access when your browser asks.');
   try {
     const stream = await navigator.mediaDevices.getUserMedia(microphoneConstraints);
     stream.getTracks().forEach(track => track.stop());
@@ -1589,8 +1541,7 @@ async function requestMicrophoneAccess({ reportError = true } = {}) {
       ? 'Microphone access was denied. Please allow microphone access in the browser address bar and try again.'
       : 'Microphone access could not be started.';
     setMicrophoneStatus(denied ? 'denied' : 'unavailable');
-    if (reportError) setVoiceConversationError(message);
-    else setBrowserAudioNote(message);
+    setVoiceConversationError(message);
     return false;
   }
 }
@@ -1677,43 +1628,11 @@ function speakQuestionAndListen(question) {
   });
 }
 
-async function prepareVoiceAccess() {
-  const button = $('#prepareVoiceButton');
-  if (button) {
-    button.disabled = true;
-    button.setAttribute('aria-busy', 'true');
-    button.textContent = 'Preparing voice access...';
-  }
-  setBrowserAudioNote('Please allow microphone and browser speech recognition if your browser asks.', true);
-  // Both permission requests begin from this button gesture. The speech
-  // probe is especially important on mobile browsers that reject a first
-  // recognition.start() after an asynchronous network request.
-  const speechRecognitionPrime = primeBrowserSpeechRecognition();
-  const microphoneAccess = requestMicrophoneAccess({ reportError: false });
-  const [speechReady, microphoneReady] = await Promise.all([speechRecognitionPrime, microphoneAccess]);
-  if (microphoneReady && speechReady) {
-    setBrowserAudioNote('Voice access is ready. Start a conversation when you are ready.');
-  } else if (microphoneReady) {
-    setBrowserAudioNote(state.recognition
-      ? 'Microphone access is ready. Tap Start voice conversation and allow browser speech recognition if prompted.'
-      : 'Microphone access is ready. This browser does not provide browser speech recognition; try live AI voice or typing.');
-  } else {
-    setBrowserAudioNote('Microphone permission is still needed. Choose Allow in the browser prompt or site settings, then try again.');
-  }
-  if (button) {
-    button.disabled = false;
-    button.setAttribute('aria-busy', 'false');
-    button.textContent = 'Check voice access again';
-  }
-  return { speechReady, microphoneReady };
-}
-
 async function startVoiceConversation() {
   state.voiceRecognitionAttempts = 0;
   state.voiceRecognitionRetryPending = false;
-  const speechRecognitionPrime = primeBrowserSpeechRecognition();
   try {
-    await voiceCoordinator.start({ transport: 'browser-fallback', speechRecognitionPrime });
+    await voiceCoordinator.start({ transport: 'browser-fallback' });
   } catch (error) {
     setVoiceConversationError(error.message || 'Voice input could not start.');
   }
@@ -1735,8 +1654,8 @@ function stopVoiceConversationPreservingBrowserState() {
 
 function renderTranscript() {
   const list = $('#transcriptList');
-  const turnMarkup = state.transcript.map((turn, index) => `<article class="transcript-turn"><div class="transcript-label">Question ${index + 1}</div><p class="transcript-question">${escapeHtml(turn.question)}</p><div class="transcript-label">Your answer</div><p>${escapeHtml(turn.answer)}</p>${turn.voice ? '' : `<details><summary>Coaching notes</summary><div class="transcript-strengths">${turn.feedback.strengths.map(item => `<span>${escapeHtml(item)}</span>`).join('')}</div><p><strong>Try next:</strong> ${escapeHtml(turn.feedback.improvement)}</p><details class="transcript-evidence"><summary>Why this feedback?</summary><p>${escapeHtml(turn.feedback.evidence?.join(' ') || 'Your feedback is based on the answer you submitted.')}</p></details></details>`}</article>`).reverse();
-  const materialMarkup = state.materialHistory.map((item, index) => `<article class="transcript-turn material-review"><div class="transcript-label">Materials Q&amp;A ${index + 1}</div><p class="transcript-question">${escapeHtml(item.question)}</p><div class="transcript-label">Answer from materials</div><p>${escapeHtml(item.answer.answer)}</p>${(item.answer.sourceGroundedClaims || []).map(claim => `<details class="transcript-evidence"><summary>Supporting evidence from ${escapeHtml(claim.sourceName)}</summary><p>${escapeHtml(claim.evidence)}</p></details>`).join('')}</article>`).reverse();
+  const turnMarkup = state.transcript.map((turn, index) => `<article class="transcript-turn"><div class="transcript-label">Question ${index + 1}</div><p class="transcript-question">${escapeHtml(turn.question)}</p><div class="transcript-label">Your answer</div><p>${escapeHtml(turn.answer)}</p>${turn.voice ? '' : `<details><summary>Coaching notes</summary><div class="transcript-strengths">${turn.feedback.strengths.map(item => `<span>${escapeHtml(item)}</span>`).join('')}</div><p><strong>Try next:</strong> ${escapeHtml(turn.feedback.improvement)}</p><details class="transcript-evidence"><summary>Why this feedback?</summary><p>${escapeHtml(turn.feedback.evidence?.join(' ') || 'Your feedback is based on the answer you submitted.')}</p></details></details>`}</article>`);
+  const materialMarkup = state.materialHistory.map((item, index) => `<article class="transcript-turn material-review"><div class="transcript-label">Materials Q&amp;A ${index + 1}</div><p class="transcript-question">${escapeHtml(item.question)}</p><div class="transcript-label">Answer from materials</div><p>${escapeHtml(item.answer.answer)}</p>${(item.answer.sourceGroundedClaims || []).map(claim => `<details class="transcript-evidence"><summary>Supporting evidence from ${escapeHtml(claim.sourceName)}</summary><p>${escapeHtml(claim.evidence)}</p></details>`).join('')}</article>`);
   list.innerHTML = [...turnMarkup, ...materialMarkup].join('');
   $('#transcriptPanel').classList.toggle('hidden', state.transcript.length === 0 && state.materialHistory.length === 0);
 }
@@ -1841,10 +1760,6 @@ function setStartProcessing(processing) {
   form.setAttribute('aria-busy', String(processing));
   button.disabled = processing;
   button.setAttribute('aria-busy', String(processing));
-  const sourceStatus = $('#sourceStatus');
-  sourceStatus.dataset.processing = String(processing);
-  if (processing && state.mode === 'materials') sourceStatus.textContent = 'Preparing your materials: uploading, extracting, and building a source digest…';
-  if (!processing && sourceStatus.textContent.startsWith('Preparing your materials:')) sourceStatus.textContent = '';
   button.innerHTML = processing ? 'Preparing your session...' : 'Start conversation <span aria-hidden="true">→</span>';
 }
 
@@ -1884,14 +1799,8 @@ function clearSourceProcessingTimers() {
   sourceProcessingTimers = [];
 }
 
-function sourceHasUsableMaterial(source) {
-  if (!source || source.status === 'failed') return false;
-  if (Number(source.chunkCount || source.metrics?.chunkCount || 0) > 0) return true;
-  const digest = source.digest || {};
-  return Boolean(
-    String(digest.digestText || digest.mainArgument || '').trim()
-    || (Array.isArray(digest.keyPoints) && digest.keyPoints.length)
-  );
+function sourceReadyForGroundedAnswers(source, digestStatus = state.session?.digestStatus) {
+  return digestStatus === 'ready' && source?.status === 'ready';
 }
 
 function friendlySourceStatus(source) {
@@ -1982,8 +1891,7 @@ function setSourceRemovalProcessing(processing) {
 function renderSourceCount(sources) {
   const label = sourceCountLabel(sources);
   const digestStatus = state.session?.digestStatus || 'queued';
-  const materialPending = sources.some(source => !sourceHasUsableMaterial(source));
-  const overviewPending = ['queued', 'processing'].includes(digestStatus);
+  const pending = sources.some(source => !sourceReadyForGroundedAnswers(source, digestStatus));
   $('#sourceBadge').textContent = sources.length ? `${label} grounded` : 'No sources yet';
   const sourceOption = $('#materialMode').querySelector('option[value="source"]');
   sourceOption.disabled = !sources.length;
@@ -1997,11 +1905,9 @@ function renderSourceCount(sources) {
     ? `${maxSourceFiles()} sources attached. Remove one to add another.`
     : sources.length ? `${label} attached. You can keep chatting while new materials finish processing.` : 'No materials added yet.';
   $('#sourceDigestStatus').textContent = sources.length
-    ? materialPending
-      ? `${label} uploaded. Extracting source material before grounded answers are available.`
-      : overviewPending
-        ? `${label} ready for source-grounded discussion. A fuller cross-source overview is being prepared in the background.`
-        : `${label} ready and available for source-grounded questions.`
+    ? pending
+      ? `${label} uploaded. Source materials are processing. Grounded answers are not ready yet, but you can keep typing or speaking.`
+      : `${label} ready and available for source-grounded questions.`
     : 'Add materials to prepare source-grounded answers.';
 }
 
@@ -2054,15 +1960,11 @@ async function refreshSources() {
   if (result.skillSelectionReason !== undefined) state.session.skillSelectionReason = result.skillSelectionReason;
   renderSourcesLifecycle(result.sources);
   renderSourceDigests(result.sources);
-  const materialPending = result.sources.some(source => !sourceHasUsableMaterial(source));
-  const overviewPending = ['queued', 'processing'].includes(state.session.digestStatus);
+  const pending = result.sources.some(source => !sourceReadyForGroundedAnswers(source, state.session.digestStatus));
   const warnings = [...(result.digestWarnings || []), ...result.sources.flatMap(source => source.warnings || [])];
   if (warnings.length) $('#sourceDigestStatus').textContent = warnings.join(' ');
-  else if (materialPending) {
-    $('#sourceDigestStatus').textContent = 'Extracting source material before grounded answers are available.';
-    queueDigestBuild().catch(() => null);
-  } else if (overviewPending) {
-    $('#sourceDigestStatus').textContent = 'Extracted material is ready to discuss. A fuller cross-source overview is being prepared in the background.';
+  else if (pending) {
+    $('#sourceDigestStatus').textContent = 'Source materials are processing. Grounded answers are not ready yet. You can keep typing or speaking while I finish the digest.';
     queueDigestBuild().catch(() => null);
   }
   return result.sources;
@@ -2097,7 +1999,6 @@ async function startSession(event) {
   event.preventDefault();
   const startButton = $('#setupForm button[type="submit"]');
   if (startButton.disabled) return;
-  resetConversationView();
   setStartProcessing(true);
   const topic = $('#topic').value.trim();
   try {
@@ -2230,36 +2131,31 @@ function normalizeRealtimeClientEvent(message) {
   return null;
 }
 
-function presentVoiceTranscriptForReview(transcript) {
-  const completedTranscript = String(transcript || '').trim();
-  if (!completedTranscript) return;
-  state.voiceReviewPending = true;
-  $('#answerText').value = completedTranscript;
-  $('#materialQuestion').value = completedTranscript;
-  persistClientSession();
-  setTranscriptReviewMessage(`Review before sending is on. Edit this transcript if needed: ${completedTranscript}`);
-  setVoiceAnnouncement('Transcript ready for review before sending.');
-  setVoiceConversationState('error');
-  returnFocusToRecoveryControl();
-}
-
 async function handleVoiceTranscript(transcript, itemKey) {
-  const cleanedTranscript = normalizeVoiceTranscript(transcript);
-  if (!cleanedTranscript) return;
+  if (!transcript.trim()) return;
   const voiceInputActive = state.voiceConversation === 'listening' || voiceCoordinator.standaloneListening || voiceCoordinator.bargeInListening;
   if (!voiceInputActive || state.voiceSubmissionKey === itemKey) return;
   state.voiceSubmissionKey = itemKey;
   state.voiceRecognitionAttempts = 0;
   state.voiceRecognitionRetryPending = false;
+  $('#answerText').value = transcript.trim();
+  $('#materialQuestion').value = transcript.trim();
+  persistClientSession();
   const reviewed = $('#reviewTranscriptToggle').checked;
+  if (reviewed) {
+    state.voiceReviewPending = true;
+    $('#answerText').value = transcript.trim();
+    $('#materialQuestion').value = transcript.trim();
+    setTranscriptReviewMessage(`Review before sending is on. Edit this transcript if needed: ${transcript.trim()}`);
+    setVoiceAnnouncement('Transcript ready for review before sending.');
+    setVoiceConversationState('error');
+    returnFocusToRecoveryControl();
+    return;
+  }
   if (voiceCoordinator.transport === 'realtime') {
-    if (reviewed) {
-      presentVoiceTranscriptForReview(cleanedTranscript);
-      return;
-    }
-    await voiceCoordinator.submitTranscript({ transcript: cleanedTranscript, confidence: null, reviewed: false, itemKey });
+    await voiceCoordinator.submitTranscript({ transcript, confidence: null, reviewed: false, itemKey });
   } else {
-    voiceCoordinator.queueTranscript({ transcript: cleanedTranscript, confidence: null, reviewed, itemKey });
+    voiceCoordinator.queueTranscript({ transcript, confidence: null, reviewed: false, itemKey });
   }
 }
 
@@ -2284,6 +2180,8 @@ async function handleRecognitionResult(event) {
       }
       voiceCoordinator.refreshTranscriptSilenceWindow(transcript);
     }
+  } else {
+    $('#answerText').value = `${$('#answerText').value} ${transcript}`.trim();
   }
 }
 
@@ -2297,8 +2195,6 @@ async function submitAnswer({ voice = false, answer: submittedAnswer } = {}) {
   try {
     const result = await api(`/api/sessions/${state.session.id}/turns`, { method: 'POST', headers: { 'idempotency-key': `turn-${state.session.turnCount}` }, body: JSON.stringify({ answer }) });
     renderFeedback(result.feedback, { speakFeedback: !voice });
-    $('#answerText').value = '';
-    $('#materialQuestion').value = '';
     if (!state.transcript.some(turn => turn.question === question && turn.answer === answer)) {
       state.transcript.push({ question, answer, feedback: result.feedback });
       renderTranscript();
@@ -2368,8 +2264,6 @@ async function askMaterialQuestion() {
     }
     const approved = renderApprovedAnswer(answer);
     state.materialHistory.push({ question, answer: approved });
-    $('#materialQuestion').value = '';
-    renderTranscript();
     persistClientSession();
   } catch (error) {
     $('#materialAnswer').textContent = 'I could not answer that right now. Try again.';
@@ -2426,25 +2320,7 @@ function setLiveInputEnabled(enabled) {
   state.localStream?.getTracks().forEach(track => { track.enabled = Boolean(enabled); });
 }
 
-function ensureRemoteAudioElement({ prime = false } = {}) {
-  if (!state.remoteAudio) {
-    state.remoteAudio = document.createElement('audio');
-    state.remoteAudio.autoplay = true;
-    state.remoteAudio.playsInline = true;
-    state.remoteAudio.muted = false;
-    state.remoteAudio.setAttribute('autoplay', '');
-    state.remoteAudio.setAttribute('playsinline', '');
-    state.remoteAudio.setAttribute('aria-hidden', 'true');
-    state.remoteAudio.className = 'remote-audio';
-    document.body.appendChild(state.remoteAudio);
-  }
-  if (prime && typeof state.remoteAudio.play === 'function') {
-    Promise.resolve(state.remoteAudio.play()).catch(() => null);
-  }
-  return state.remoteAudio;
-}
-
-function stopLiveVoice({ intentional = true, preserveLocalStream = false, preserveRemoteAudio = false } = {}) {
+function stopLiveVoice({ intentional = true, preserveLocalStream = false } = {}) {
   const dataChannel = state.dataChannel;
   const peer = state.peer;
   const localStream = state.localStream;
@@ -2452,7 +2328,7 @@ function stopLiveVoice({ intentional = true, preserveLocalStream = false, preser
   state.peer = null;
   if (!preserveLocalStream) state.localStream = null;
   state.dataChannel = null;
-  if (!preserveRemoteAudio) state.remoteAudio = null;
+  state.remoteAudio = null;
   if (intentional && dataChannel) {
     dataChannel.onopen = null;
     dataChannel.onmessage = null;
@@ -2465,7 +2341,7 @@ function stopLiveVoice({ intentional = true, preserveLocalStream = false, preser
   dataChannel?.close();
   peer?.close();
   if (!preserveLocalStream) localStream?.getTracks().forEach(track => track.stop());
-  if (!preserveRemoteAudio) remoteAudio?.remove();
+  remoteAudio?.remove();
   state.voiceReviewPending = false;
   setLiveVoiceState(false);
 }
@@ -2482,26 +2358,6 @@ function handleRealtimeTransportMessage(message) {
   emitAndApplyVoiceEvent(message.type, message);
 }
 
-function waitForIceGathering(peer, timeoutMs = 8_000) {
-  if (!peer || !peer.iceGatheringState || peer.iceGatheringState === 'complete') return Promise.resolve();
-  return new Promise(resolve => {
-    let settled = false;
-    const finish = () => {
-      if (settled) return;
-      settled = true;
-      window.clearTimeout(timer);
-      resolve();
-    };
-    const timer = window.setTimeout(finish, timeoutMs);
-    const previousHandler = peer.onicegatheringstatechange;
-    peer.onicegatheringstatechange = event => {
-      previousHandler?.(event);
-      if (peer.iceGatheringState === 'complete') finish();
-    };
-    if (peer.iceGatheringState === 'complete') finish();
-  });
-}
-
 async function openRealtimeVoiceTransport({ reconnecting = false } = {}) {
   if (!window.RTCPeerConnection || !navigator.mediaDevices?.getUserMedia) throw new Error('Live voice is not supported in this browser. Use Speak answer or type instead.');
   const preserveRecordingInput = Boolean(reconnecting && recordingInputBorrowed && isRecordingActive());
@@ -2510,7 +2366,7 @@ async function openRealtimeVoiceTransport({ reconnecting = false } = {}) {
     $('#liveVoiceButton').disabled = true;
     $('#liveVoiceButton').setAttribute('aria-busy', 'true');
     setVoiceAnnouncement(reconnecting ? 'Reconnecting live AI voice…' : 'Connecting live AI voice…');
-    stopLiveVoice({ preserveLocalStream: preserveRecordingInput, preserveRemoteAudio: true });
+    stopLiveVoice({ preserveLocalStream: preserveRecordingInput });
     try {
       state.localStream = reusableLocalStream || await navigator.mediaDevices.getUserMedia(microphoneConstraints);
       setMicrophoneStatus('available');
@@ -2521,11 +2377,8 @@ async function openRealtimeVoiceTransport({ reconnecting = false } = {}) {
     }
     state.peer = new RTCPeerConnection();
     state.peer.ontrack = event => {
-      const remoteAudio = ensureRemoteAudioElement();
-      remoteAudio.srcObject = event.streams[0];
-      Promise.resolve(remoteAudio.play?.()).catch(() => {
-        setVoiceAnnouncement('Live AI voice is connected. If you cannot hear it, tap the live voice button once to enable audio playback.');
-      });
+      if (!state.remoteAudio) { state.remoteAudio = document.createElement('audio'); state.remoteAudio.autoplay = true; state.remoteAudio.className = 'hidden'; document.body.appendChild(state.remoteAudio); }
+      state.remoteAudio.srcObject = event.streams[0];
       attachRecordingRemoteStream(event.streams[0]);
     };
     state.peer.onconnectionstatechange = () => {
@@ -2560,9 +2413,7 @@ async function openRealtimeVoiceTransport({ reconnecting = false } = {}) {
     state.dataChannel.onclose = () => emitAndApplyVoiceEvent('recoverable_error', { message: 'Live voice connection closed.' });
     const offer = await state.peer.createOffer();
     await state.peer.setLocalDescription(offer);
-    await waitForIceGathering(state.peer);
-    const gatheredOffer = state.peer.localDescription?.sdp || offer.sdp;
-    const call = await api('/api/realtime/call', { method: 'POST', body: JSON.stringify({ sessionId: state.session.id, sdp: gatheredOffer }) });
+    const call = await api('/api/realtime/call', { method: 'POST', body: JSON.stringify({ sessionId: state.session.id, sdp: offer.sdp }) });
     await state.peer.setRemoteDescription({ type: 'answer', sdp: call.sdp });
   } catch (error) {
     stopLiveVoice({ preserveLocalStream: preserveRecordingInput });
@@ -2575,25 +2426,11 @@ async function connectLiveVoice() {
     voiceCoordinator.stop();
     return;
   }
-  const speechRecognitionPrime = primeBrowserSpeechRecognition();
   try {
     await voiceCoordinator.start({ transport: 'realtime' });
   } catch (error) {
-    voiceCoordinator.stop({ skipServer: true, preserveBrowserState: true });
-    if (state.recognition) {
-      try {
-        setVoiceAnnouncement('Live AI voice could not connect. Starting browser voice input instead.');
-        await voiceCoordinator.start({ transport: 'browser-fallback', speechRecognitionPrime });
-        notify('Live AI voice could not connect, so browser voice input is active instead.');
-        return;
-      } catch (fallbackError) {
-        voiceCoordinator.stop({ skipServer: true });
-        setVoiceConversationError(fallbackError?.message || error?.message || 'Voice communication could not start.');
-        notifyError(fallbackError);
-        return;
-      }
-    }
-    setVoiceConversationError(error?.message || 'Live voice is unavailable. Continue by typing.');
+    stopLiveVoice();
+    setVoiceAnnouncement('Live voice is unavailable. Continue by typing or use browser voice input.');
     notifyError(error);
   }
 }
@@ -2736,6 +2573,7 @@ async function restoreClientSession() {
 function setupSpeechRecognition() {
   const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!Recognition) { $('#listenButton').textContent = '◎ Voice input unavailable'; $('#listenButton').disabled = true; return; }
+  setSpeechRecognitionPermission('unknown');
   state.recognition = new Recognition();
   state.recognition.lang = 'en-US';
   state.recognition.continuous = true;
@@ -2743,14 +2581,11 @@ function setupSpeechRecognition() {
   state.recognition.maxAlternatives = 1;
   state.recognition.onstart = () => {
     state.recognitionActive = true;
-    if (state.speechRecognitionPriming) {
-      setVoiceAnnouncement('Browser speech recognition is allowed. Preparing voice conversation...');
-      window.setTimeout(() => {
-        if (state.speechRecognitionPriming) stopSpeechRecognition();
-      }, 0);
+    state.voiceRecognitionSessionId += 1;
+    if (state.speechRecognitionProbe) {
+      finishSpeechRecognitionProbe(true);
       return;
     }
-    state.voiceRecognitionSessionId += 1;
     beginRecognitionCycle(state.voiceRecognitionSessionId);
     state.voiceRecognitionAttempts = 0;
     setVoiceAnnouncement(voiceCoordinator.bargeInListening
@@ -2761,12 +2596,11 @@ function setupSpeechRecognition() {
   state.recognition.onresult = event => { handleRecognitionResult(event); persistClientSession(); };
   state.recognition.onerror = event => {
     state.recognitionActive = false;
-    setListeningState(false);
-    if (state.speechRecognitionPriming) {
-      finishSpeechRecognitionPrime(false);
-      setVoiceAnnouncement('Browser speech recognition was not allowed. Tap Speak answer and allow it when prompted.');
+    if (state.speechRecognitionProbe) {
+      finishSpeechRecognitionProbe(false);
       return;
     }
+    setListeningState(false);
     if (state.voiceConversation === 'off') return;
     const code = event.error || 'unknown';
     if (state.voiceConversation === 'listening' && ['aborted', 'no-speech', 'network'].includes(code)) {
@@ -2785,11 +2619,11 @@ function setupSpeechRecognition() {
   };
   state.recognition.onend = () => {
     state.recognitionActive = false;
-    setListeningState(false);
-    if (state.speechRecognitionPriming) {
-      finishSpeechRecognitionPrime(true);
+    if (state.speechRecognitionProbe) {
+      finishSpeechRecognitionProbe(false);
       return;
     }
+    setListeningState(false);
     commitRecognitionCycle();
     if (voiceCoordinator.pendingTranscript) {
       voiceCoordinator.scheduleTranscriptSubmission();
@@ -2811,56 +2645,16 @@ function setupSpeechRecognition() {
   };
 }
 
-function cancelSpeechRecognitionPrime() {
-  if (state.speechRecognitionPriming) finishSpeechRecognitionPrime(false);
-}
-
-function stopSpeechRecognition({ cancelPriming = false } = {}) {
-  if (cancelPriming) cancelSpeechRecognitionPrime();
+function stopSpeechRecognition() {
   if (!state.recognition) return;
   try { state.recognition.stop(); } catch { /* Recognition may already be idle. */ }
   state.recognitionActive = false;
   setListeningState(false);
 }
 
-function finishSpeechRecognitionPrime(success) {
-  if (!state.speechRecognitionPriming) return;
-  if (state.speechRecognitionPrimeTimer) {
-    window.clearTimeout(state.speechRecognitionPrimeTimer);
-    state.speechRecognitionPrimeTimer = null;
-  }
-  const resolve = state.speechRecognitionPrimeResolve;
-  state.speechRecognitionPriming = false;
-  state.speechRecognitionReady = Boolean(success);
-  state.speechRecognitionPrimeResolve = null;
-  state.speechRecognitionPrimePromise = null;
-  resolve?.(Boolean(success));
-}
-
-function primeBrowserSpeechRecognition() {
-  if (!state.recognition) return Promise.resolve(false);
-  if (state.speechRecognitionPriming) return state.speechRecognitionPrimePromise;
-  if (state.speechRecognitionReady) return Promise.resolve(true);
-  if (state.recognitionActive) return Promise.resolve(true);
-
-  state.speechRecognitionPriming = true;
-  state.speechRecognitionPrimePromise = new Promise(resolve => {
-    state.speechRecognitionPrimeResolve = resolve;
-  });
-  setVoiceAnnouncement('Please allow microphone and browser speech recognition if your browser asks.');
-  try {
-    // Start directly from the voice button gesture. Safari and Firefox can
-    // reject recognition.start() when it is first called after async work.
-    state.recognition.start();
-    state.speechRecognitionPrimeTimer = window.setTimeout(() => finishSpeechRecognitionPrime(false), 15_000);
-  } catch {
-    finishSpeechRecognitionPrime(false);
-  }
-  return state.speechRecognitionPrimePromise || Promise.resolve(false);
-}
-
 document.querySelectorAll('input[name="mode"]').forEach(input => input.addEventListener('change', event => { state.mode = event.target.value; $('.mode-option.selected')?.classList.remove('selected'); event.target.closest('.mode-option').classList.add('selected'); $('#sourceSetup').classList.toggle('hidden', state.mode !== 'materials'); syncConversationDefaults(); syncQuestionLimitOptions(); }));
 $('#setupForm').addEventListener('submit', startSession);
+$('#prepareVoiceButton')?.addEventListener('click', () => { prepareVoiceAccess().catch(notifyError); });
 $('#sourceFile').addEventListener('change', loadSourceFile);
 $('#sourceName').addEventListener('input', () => { $('#sourceName').dataset.autoName = ''; });
 $('#answerText').addEventListener('input', persistClientSession);
@@ -2897,7 +2691,6 @@ $('#stopRecordingButton').addEventListener('click', () => { stopRecordingAndKeep
 $('#discardRecordingButton').addEventListener('click', discardRecording);
 $('#downloadRecordingButton').addEventListener('click', () => { downloadRecording('recording').catch(() => null); });
 $('#downloadRecordingSummaryButton').addEventListener('click', () => { downloadRecording('summary').catch(() => null); });
-$('#prepareVoiceButton')?.addEventListener('click', () => { prepareVoiceAccess().catch(error => setBrowserAudioNote(error?.message || 'Voice access could not be prepared.')); });
 $('#listenButton').addEventListener('click', () => {
   if (!state.recognition) return;
   if (voiceCoordinator.standaloneListening) {
@@ -2947,7 +2740,7 @@ $('#endSession').addEventListener('click', () => {
   completeSession().catch(notifyError).finally(() => setEndSessionProcessing(false));
 });
 $('#sourceText').addEventListener('input', () => { state.pendingSource = null; });
-$('#newSession').addEventListener('click', () => { discardRecording(); stopLiveVoice(); stopVoiceConversation(); stopSpeechRecognition({ cancelPriming: true }); clearClientSession(); clearAdditionalSourceDraft(); state = { session: null, token: null, mode: 'practice', sourceLimits: state.sourceLimits, recognition: state.recognition, recognitionActive: false, speechRecognitionPriming: false, speechRecognitionReady: false, speechRecognitionPrimePromise: null, speechRecognitionPrimeResolve: null, speechRecognitionPrimeTimer: null, peer: null, localStream: null, dataChannel: null, remoteAudio: null, pendingSource: null, processedVoiceItems: new Set(), voiceReviewPending: false, voiceConversation: 'off', browserConversationState: 'idle', voiceAnnouncement: '', voiceSubmissionKey: null, voiceRecognitionSessionId: 0, voiceRecognitionAttempts: 0, voiceRecognitionRetryPending: false, transcript: [], materialHistory: [], summary: null, lastFeedback: null, lastSpokenLine: '' }; $('#setupForm').reset(); syncConversationDefaults(); syncModeSelection(); syncQuestionLimitOptions(); clearSourceNameAutoMarker(); $('#sourceSetup').classList.add('hidden'); show('setupView'); renderBrowserConversationState(); });
+$('#newSession').addEventListener('click', () => { discardRecording(); stopLiveVoice(); stopVoiceConversation(); stopSpeechRecognition(); clearClientSession(); clearAdditionalSourceDraft(); state = { ...state, session: null, token: null, mode: 'practice', sourceLimits: state.sourceLimits, recognition: state.recognition, peer: null, localStream: null, dataChannel: null, remoteAudio: null, pendingSource: null, processedVoiceItems: new Set(), voiceReviewPending: false, voiceConversation: 'off', browserConversationState: 'idle', voiceAnnouncement: '', voiceSubmissionKey: null, voiceRecognitionSessionId: 0, voiceRecognitionAttempts: 0, voiceRecognitionRetryPending: false, transcript: [], materialHistory: [], summary: null, lastFeedback: null, lastSpokenLine: '' }; $('#setupForm').reset(); syncConversationDefaults(); syncModeSelection(); syncQuestionLimitOptions(); clearSourceNameAutoMarker(); $('#sourceSetup').classList.add('hidden'); show('setupView'); renderBrowserConversationState(); syncVoiceAccessSetup(); });
 $('#deleteData').addEventListener('click', async () => {
   if ($('#deleteData').disabled || !confirmLeavingWithDraft()) return;
   setDeleteDataProcessing(true);
@@ -2955,11 +2748,10 @@ $('#deleteData').addEventListener('click', async () => {
     discardRecording();
     stopLiveVoice();
     stopVoiceConversation();
-    stopSpeechRecognition({ cancelPriming: true });
     await api(`/api/sessions/${state.session.id}`, { method: 'DELETE' });
     clearAdditionalSourceDraft();
     clearClientSession();
-    state = { session: null, token: null, mode: 'practice', sourceLimits: state.sourceLimits, recognition: state.recognition, recognitionActive: false, speechRecognitionPriming: false, speechRecognitionReady: false, speechRecognitionPrimePromise: null, speechRecognitionPrimeResolve: null, speechRecognitionPrimeTimer: null, peer: null, localStream: null, dataChannel: null, remoteAudio: null, pendingSource: null, processedVoiceItems: new Set(), voiceReviewPending: false, voiceConversation: 'off', browserConversationState: 'idle', voiceAnnouncement: '', voiceSubmissionKey: null, voiceRecognitionSessionId: 0, voiceRecognitionAttempts: 0, voiceRecognitionRetryPending: false, transcript: [], materialHistory: [], summary: null, lastFeedback: null, lastSpokenLine: '' };
+    state = { ...state, session: null, token: null, mode: 'practice', sourceLimits: state.sourceLimits, recognition: state.recognition, peer: null, localStream: null, dataChannel: null, remoteAudio: null, pendingSource: null, processedVoiceItems: new Set(), voiceReviewPending: false, voiceConversation: 'off', browserConversationState: 'idle', voiceAnnouncement: '', voiceSubmissionKey: null, voiceRecognitionSessionId: 0, voiceRecognitionAttempts: 0, voiceRecognitionRetryPending: false, transcript: [], materialHistory: [], summary: null, lastFeedback: null, lastSpokenLine: '' };
     show('setupView');
     notify('Session data deleted.');
   } catch (error) { notifyError(error); }
@@ -2971,6 +2763,7 @@ window.voiceCoordinator = voiceCoordinator;
 setVoiceConversationState('off');
 renderBrowserConversationState();
 setupSpeechRecognition();
+syncVoiceAccessSetup();
 syncRecordingUi();
 syncQuestionLimitOptions();
 syncConversationDefaults();

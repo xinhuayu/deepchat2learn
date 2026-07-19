@@ -3,8 +3,8 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="description" content="A voice-first academic learning environment for deep conversations, source-grounded discussion, and meaningful practice." />
-    <title>deepchat2learn — Academic Learning</title>
+    <meta name="description" content="A focused AI speaking coach for practice and source-based questions." />
+    <title>deepchat2learn — AI Coaching</title>
     <link rel="icon" type="image/png" href="/brand-logo.png" />
     <link rel="stylesheet" href="/styles.css" />
   </head>
@@ -19,9 +19,17 @@
         <div class="hero-copy">
           <p class="eyebrow">A vibrate place to think clearly</p>
           <h1>Turn Hot Conversations into Deep Learning</h1>
+          <p class="lede">Choose a topic, answer one question at a time, and get specific coaching you can use immediately.</p>
         </div>
+        <section id="voicePermissionSetup" class="voice-permission-setup hidden" aria-hidden="true" aria-labelledby="voiceAccessTitle">
+          <div class="voice-permission-copy">
+            <strong id="voiceAccessTitle">Prepare mobile voice access</strong>
+            <p id="browser-audio-note" class="privacy-note" role="status" aria-live="polite">Voice access will be checked when needed.</p>
+          </div>
+          <button id="prepareVoiceButton" class="secondary" type="button">Enable voice access</button>
+        </section>
         <form id="setupForm" class="card setup-card">
-          <label for="topic">What would you like to discuss today? (required)</label>
+          <label for="topic">What would you like to discuss today?</label>
           <textarea id="topic" name="topic" rows="2" required placeholder="For example: Explain my research clearly to a non-specialist"></textarea>
           <div class="mode-grid" role="group" aria-label="Coaching mode">
             <label class="mode-option selected"><input type="radio" name="mode" value="practice" checked /><span><strong>Practice speaking</strong><small>Answer questions and improve your delivery.</small></span></label>
@@ -53,10 +61,6 @@
           </div>
           <button class="primary" type="submit">Start conversation <span aria-hidden="true">→</span></button>
           <p class="privacy-note">Voice audio is not recorded by default. You can enable local recording after starting a voice conversation, or answer by typing if your microphone is unavailable.</p>
-          <div class="voice-permission-setup">
-            <button id="prepareVoiceButton" class="secondary" type="button">Enable voice access</button>
-            <p id="browser-audio-note" class="privacy-note" role="status" aria-live="polite">Browser audio playback is available. On iPhone, tap Enable voice access and allow microphone and browser speech recognition if prompted.</p>
-          </div>
           <p id="serviceStatus" class="privacy-note status-text" role="status" aria-live="polite">Checking coaching services…</p>
         </form>
       </section>

@@ -86,11 +86,6 @@ class FakeElement {
     this.files = [];
     this.textContent = '';
     this.innerHTML = '';
-    this.className = classNames.join(' ');
-    this.autoplay = false;
-    this.playsInline = false;
-    this.muted = false;
-    this.playCount = 0;
   }
 
   appendChild(child) {
@@ -145,11 +140,6 @@ class FakeElement {
 
   select() {
     this.selected = true;
-  }
-
-  play() {
-    this.playCount += 1;
-    return Promise.resolve();
   }
 
   querySelector(selector) {
@@ -239,11 +229,9 @@ class FakeSpeechRecognition {
     this.stopCount = 0;
     this.lang = 'en-US';
     this.interimResults = false;
-    this.results = [];
   }
 
   start() {
-    if (!this.started) this.results = [];
     this.started = true;
     this.startCount += 1;
     this.onstart?.();
@@ -257,12 +245,9 @@ class FakeSpeechRecognition {
   }
 
   emitResult(transcript, resultIndex = 0, isFinal = true) {
-    const result = [{ transcript }];
-    result.isFinal = isFinal;
-    this.results[resultIndex] = result;
     this.onresult?.({
       resultIndex,
-      results: this.results
+      results: [[{ transcript, isFinal }]]
     });
   }
 }
@@ -326,7 +311,6 @@ class FakeRTCPeerConnection {
     harness.lastPeer = this;
     harness.peers.push(this);
     this.connectionState = 'new';
-    this.iceGatheringState = 'new';
   }
 
   addTrack(track) {
@@ -344,9 +328,7 @@ class FakeRTCPeerConnection {
   }
 
   async setLocalDescription(description) {
-    this.localDescription = { ...description, sdp: 'local-offer-with-candidates' };
-    this.iceGatheringState = 'complete';
-    this.onicegatheringstatechange?.();
+    this.localDescription = description;
   }
 
   async setRemoteDescription(description) {
@@ -416,7 +398,7 @@ function buildSessionPublic(id, currentQuestion = '') {
   };
 }
 
-function createFixtureServer(fixtures, { digestStatus = 'ready', denyMicrophone = false, currentQuestion = '', failVoiceTurns = 0, pendingVoiceTurn = null, healthConnection = undefined, failRealtimeCall = false } = {}) {
+function createFixtureServer(fixtures, { digestStatus = 'ready', denyMicrophone = false, currentQuestion = '', failVoiceTurns = 0, pendingVoiceTurn = null } = {}) {
   const sessionId = 'session-voice-1';
   const token = 'token-voice-1';
   const paper = materializeSource(fixtures.paper.source);
@@ -590,20 +572,18 @@ function createFixtureServer(fixtures, { digestStatus = 'ready', denyMicrophone 
     deleted: false,
     expireNextVoiceTurn: false,
     voiceTurnRequests: [],
-    realtimeCalls: [],
     interrupts: [],
     fetchLifecycle: [],
     typedQuestions: [],
     failVoiceTurnsRemaining: failVoiceTurns,
     pendingVoiceTurn,
-    failRealtimeCall,
     async handle(url, options = {}) {
       const parsed = new URL(url, 'http://localhost');
       const pathname = parsed.pathname;
       const method = String(options.method || 'GET').toUpperCase();
       const body = options.body ? JSON.parse(options.body) : null;
       if (pathname === '/api/health') {
-        return { ok: true, body: { capabilities: { textCoach: 'local', realtimeVoice: true, storage: 'sqlite' }, connection: healthConnection, sourceLimits: { maxFiles: 10, maxFileBytes: 20_000_000 }, privacy: { defaultRetentionMode: 'until_deleted', audioStorage: 'never' } } };
+        return { ok: true, body: { capabilities: { textCoach: 'local', realtimeVoice: true, storage: 'sqlite' }, sourceLimits: { maxFiles: 10, maxFileBytes: 20_000_000 }, privacy: { defaultRetentionMode: 'until_deleted', audioStorage: 'never' } } };
       }
       if (pathname === '/api/sessions' && method === 'POST') {
         const session = buildSessionPublic(sessionId, 'What is the central claim?');
@@ -686,8 +666,6 @@ function createFixtureServer(fixtures, { digestStatus = 'ready', denyMicrophone 
         return { ok: true, body: { deleted: true } };
       }
       if (pathname === '/api/realtime/call' && method === 'POST') {
-        this.realtimeCalls.push(body);
-        if (this.failRealtimeCall) return { ok: false, body: { error: { code: 'REALTIME_CALL_FAILED', message: 'Live AI voice could not connect. Continue by typing.' } } };
         return { ok: true, body: { sdp: 'fake-answer-sdp' } };
       }
       throw new Error(`Unhandled request ${method} ${pathname}`);
@@ -712,6 +690,9 @@ function createHarnessDom() {
   add('div', 'summaryView', { classNames: ['hidden'] });
   add('div', 'globalError', { classNames: ['hidden'] });
   add('div', 'serviceStatus');
+  add('section', 'voicePermissionSetup', { classNames: ['voice-permission-setup', 'hidden'] });
+  add('div', 'voiceAccessTitle');
+  add('button', 'prepareVoiceButton', { type: 'button' });
   add('div', 'browser-audio-note');
   add('div', 'voiceLiveRegion');
   add('div', 'voiceStateLabel');
@@ -822,7 +803,6 @@ function createHarnessDom() {
     'voiceRetryButton',
     'repeatSpokenLine',
     'liveVoiceButton',
-    'prepareVoiceButton',
     'endSession',
     'newSession',
     'deleteData'
@@ -916,6 +896,17 @@ async function createHarness(options = {}) {
   };
 
   const navigator = {
+    userAgent: options.mobile ? 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 Safari/604.1' : 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126.0.0.0 Safari/537.36',
+    platform: options.mobile ? 'iPhone' : 'Win32',
+    maxTouchPoints: options.mobile ? 5 : 0,
+    permissions: {
+      async query() {
+        return {
+          state: options.microphonePermission || 'prompt',
+          addEventListener() {}
+        };
+      }
+    },
     mediaDevices: {
       async getUserMedia(constraints) {
         const callNumber = harness.mediaConstraints.length + 1;
@@ -1463,6 +1454,38 @@ test('voice harness handles permission denial without a physical microphone', as
   assert.equal(harness.document.activeElement?.id, 'answerText');
 });
 
+test('voice access preflight stays hidden on desktop', async () => {
+  const harness = await createHarness({ microphonePermission: 'prompt' });
+  const panel = harness.document.querySelector('#voicePermissionSetup');
+
+  assert.equal(panel.classList.contains('hidden'), true);
+  assert.equal(harness.mediaConstraints.length, 0);
+});
+
+test('mobile voice access preflight appears only when browser permissions need attention', async () => {
+  const harness = await createHarness({ mobile: true, microphonePermission: 'prompt' });
+  const panel = harness.document.querySelector('#voicePermissionSetup');
+  const button = harness.document.querySelector('#prepareVoiceButton');
+
+  assert.equal(panel.classList.contains('hidden'), false);
+  assert.match(harness.document.querySelector('#browser-audio-note').textContent, /allow microphone and browser speech recognition/i);
+
+  button.click();
+  await harness.flush();
+
+  assert.equal(panel.classList.contains('hidden'), true);
+  assert.match(harness.document.querySelector('#browser-audio-note').textContent, /ready/i);
+  assert.equal(harness.mediaConstraints.length, 1);
+});
+
+test('mobile browsers without SpeechRecognition do not show a browser permission prompt', async () => {
+  const harness = await createHarness({ mobile: true, noSpeechRecognition: true, microphonePermission: 'prompt' });
+  const panel = harness.document.querySelector('#voicePermissionSetup');
+
+  assert.equal(panel.classList.contains('hidden'), true);
+  assert.match(harness.document.querySelector('#browser-audio-note').textContent, /live AI voice|typing/i);
+});
+
 test('unsupported speech recognition leaves the typed fallback focused and ready', async () => {
   const harness = await createHarness({ noSpeechRecognition: true });
 
@@ -1486,74 +1509,6 @@ test('voice harness reports accessible microphone after permission check', async
   await harness.flush();
 
   assert.match(harness.document.querySelector('#microphoneStatus').textContent, /Microphone accessible/i);
-});
-
-test('landing voice setup requests permissions before a session starts', async () => {
-  const harness = await createHarness();
-  const recognition = harness.recognition();
-  const setupButton = harness.document.querySelector('#prepareVoiceButton');
-
-  setupButton.click();
-  assert.equal(recognition.startCount, 1, 'browser speech recognition should start from the landing-page gesture');
-  assert.match(harness.document.querySelector('#browser-audio-note').textContent, /allow microphone and browser speech recognition/i);
-
-  await harness.flush();
-  assert.equal(recognition.started, false, 'the permission probe should stop after the browser grants recognition');
-  assert.match(harness.document.querySelector('#browser-audio-note').textContent, /voice access is ready|microphone/i);
-});
-
-test('browser voice primes speech recognition from the start-button gesture', async () => {
-  const harness = await createHarness({ currentQuestion: 'What is the study design?' });
-  const recognition = harness.recognition();
-
-  harness.document.querySelector('#voiceConversationButton').click();
-
-  assert.equal(recognition.startCount, 1, 'speech recognition should be primed immediately from the user gesture');
-  assert.match(harness.document.querySelector('#voiceState').textContent, /browser speech recognition|microphone/i);
-
-  await harness.flush();
-  assert.equal(recognition.started, false, 'priming must stop before the opening question is spoken');
-  await harness.finishSpeech();
-  await harness.flush(750);
-  assert.equal(recognition.started, true, 'recognition should start automatically after the opening question');
-  assert.ok(recognition.startCount >= 2, 'the active listening cycle should follow the priming cycle');
-});
-
-test('browser voice recovers from speech playback errors by entering listening state', async () => {
-  const harness = await createHarness({ currentQuestion: 'What is the study design?' });
-  const recognition = harness.recognition();
-
-  harness.document.querySelector('#voiceConversationButton').click();
-  await harness.flush();
-  harness.speechSynthesis.active?.onerror?.({ error: 'not-allowed' });
-  await harness.flush(750);
-
-  assert.equal(recognition.started, true, 'a speech playback failure must not strand voice in AI speaking state');
-  assert.match(harness.document.querySelector('#voiceState').textContent, /listening|audio playback/i);
-});
-
-test('browser voice leaves AI-speaking state if speech playback never reports completion', async () => {
-  const harness = await createHarness({ currentQuestion: 'What is the study design?' });
-  const recognition = harness.recognition();
-
-  harness.document.querySelector('#voiceConversationButton').click();
-  await harness.flush();
-  assert.equal(recognition.started, false);
-
-  await harness.timers.flushDue(10_000);
-  await harness.flush();
-
-  assert.equal(recognition.started, true, 'the playback watchdog should advance to browser listening');
-  assert.match(harness.document.querySelector('#voiceState').textContent, /listening|audio playback/i);
-});
-
-test('service status reports a realtime outage while preserving browser voice fallback', async () => {
-  const harness = await createHarness({
-    healthConnection: { textModel: 'configured', realtimeVoice: 'unavailable' }
-  });
-
-  assert.match(harness.document.querySelector('#serviceStatus').textContent, /temporarily unavailable/i);
-  assert.match(harness.document.querySelector('#serviceStatus').textContent, /browser voice/i);
 });
 
 test('source voice startup speaks the current academic question before listening', async () => {
@@ -1787,8 +1742,7 @@ test('browser voice accumulates multi-segment answers before five-second submiss
   await harness.flush();
 
   const expected = 'The study uses a longitudinal cohort. It examines cognitive trajectories and later health.';
-  assert.equal(harness.document.querySelector('#answerText').value, '');
-  assert.equal(harness.document.querySelector('#materialQuestion').value, '');
+  assert.equal(harness.document.querySelector('#answerText').value, expected);
   assert.equal(harness.server.voiceTurnRequests.length, 0);
 
   await harness.timers.flushDue(4_999);
@@ -1815,9 +1769,6 @@ test('browser voice resets the silence window without submitting interim recogni
   recognition.emitResult('It examines cognitive trajectories and later health.', 1, false);
   await harness.flush();
 
-  assert.equal(harness.document.querySelector('#answerText').value, '');
-  assert.equal(harness.document.querySelector('#materialQuestion').value, '');
-
   await harness.timers.flushDue(5_000);
   await flushMicrotasks();
 
@@ -1838,11 +1789,11 @@ test('browser voice replaces an updated final hypothesis at the same recognition
   await harness.flush();
   recognition.emitResult('What is the distribution', 0, false);
   await harness.flush();
-  assert.equal(harness.document.querySelector('#answerText').value, '');
+  assert.equal(harness.document.querySelector('#answerText').value, 'What is');
 
   recognition.emitResult('What is the distribution?', 0, true);
   await harness.flush();
-  assert.equal(harness.document.querySelector('#answerText').value, '');
+  assert.equal(harness.document.querySelector('#answerText').value, 'What is the distribution?');
 
   await harness.timers.flushDue(5_000);
   await flushMicrotasks();
@@ -1867,100 +1818,8 @@ test('browser voice keeps interim recognition out of the answer box until the tr
 
   recognition.emitResult('The study examines cognitive change and later health.', 0, true);
   await harness.flush();
-  assert.equal(harness.document.querySelector('#answerText').value, '');
+  assert.equal(harness.document.querySelector('#answerText').value, 'The study examines cognitive change and later health.');
   assert.equal(harness.server.voiceTurnRequests.length, 0);
-});
-
-test('completed voice text is cleared before the next response begins', async () => {
-  let resolvePending;
-  const pendingVoiceTurn = new Promise(resolve => { resolvePending = resolve; });
-  const harness = await createHarness({ pendingVoiceTurn });
-  const answer = 'What is the paper\'s main argument?';
-
-  const pending = harness.voiceCoordinator.submitTranscript({ transcript: answer, itemKey: 'retain-answer-1' });
-  await flushMicrotasks();
-  assert.equal(harness.document.querySelector('#answerText').value, answer);
-  assert.equal(harness.document.querySelector('#materialQuestion').value, answer);
-
-  resolvePending({ ok: true, body: {
-    turn: { id: 'retained-turn', status: 'answered' },
-    answerText: 'The paper examines a longitudinal question.',
-    answerSpeechText: 'The paper examines a longitudinal question.',
-    knowledgeLayers: ['source'],
-    citations: [],
-    externalCitations: [],
-    confidence: 'high',
-    followUp: 'What is the study design?',
-    nextState: 'speaking_answer'
-  } });
-  await pending;
-  await harness.flush();
-  assert.equal(harness.document.querySelector('#answerText').value, answer);
-  assert.equal(harness.document.querySelector('#materialQuestion').value, answer);
-});
-
-test('close voice request prepares the summary and stops after a spoken closing message', async () => {
-  const harness = await createHarness({
-    pendingVoiceTurn: Promise.resolve({ ok: true, body: {
-      turn: { id: 'close-turn', intent: 'close', status: 'answered' },
-      answerText: 'I will wrap up this conversation and prepare your session summary.',
-      answerSpeechText: 'I will wrap up this conversation and prepare your session summary.',
-      knowledgeLayers: ['llm'],
-      citations: [],
-      externalCitations: [],
-      confidence: 'high',
-      closeRequested: true,
-      done: true,
-      nextState: 'completed'
-    } })
-  });
-
-  const pending = harness.voiceCoordinator.submitTranscript({ transcript: "I'm done.", itemKey: 'close-browser-1' });
-  await pending;
-  assert.equal(harness.document.querySelector('#answerText').value, "I'm done.");
-  assert.equal(harness.document.querySelector('#summaryView').classList.contains('hidden'), true);
-
-  harness.speechSynthesis.finish();
-  await flushMicrotasks();
-  await harness.flush(750);
-  assert.equal(harness.document.querySelector('#summaryView').classList.contains('hidden'), false);
-});
-
-test('source conversation history shows the most recent exchange first', async () => {
-  const harness = await createHarness();
-
-  await harness.voiceCoordinator.submitTranscript({ transcript: 'What is the paper\'s main argument?', itemKey: 'history-1' });
-  await harness.voiceCoordinator.submitTranscript({ transcript: 'What evidence supports it?', itemKey: 'history-2' });
-
-  const history = harness.document.querySelector('#transcriptList').innerHTML;
-  assert.ok(history.indexOf('Materials Q&amp;A 2') < history.indexOf('Materials Q&amp;A 1'));
-});
-
-test('browser voice presents one completed transcript for review after silence without submitting it', async () => {
-  const harness = await createHarness();
-  const recognition = harness.recognition();
-  harness.document.querySelector('#reviewTranscriptToggle').checked = true;
-
-  harness.document.querySelector('#voiceConversationButton').click();
-  await harness.flush();
-  await harness.finishSpeech();
-  await harness.flush();
-
-  recognition.emitResult('The paper follows older adults over time.', 0, true);
-  recognition.emitResult('It relates cognitive change to later health outcomes.', 1, true);
-  await harness.flush();
-
-  assert.equal(harness.document.querySelector('#answerText').value, '');
-  assert.equal(harness.server.voiceTurnRequests.length, 0);
-
-  await harness.timers.flushDue(5_000);
-  await flushMicrotasks();
-
-  const expected = 'The paper follows older adults over time. It relates cognitive change to later health outcomes.';
-  assert.equal(harness.document.querySelector('#answerText').value, expected);
-  assert.equal(harness.document.querySelector('#materialQuestion').value, expected);
-  assert.equal(harness.server.voiceTurnRequests.length, 0);
-  assert.match(harness.document.querySelector('#voiceState').textContent, /review/i);
 });
 
 test('browser voice requires explicit interruption before listening during AI speech', async () => {
@@ -1987,38 +1846,6 @@ test('browser voice requires explicit interruption before listening during AI sp
   assert.equal(recognition.started, true);
 });
 
-test('source barge-in clears the previous turn before capturing a new question', async () => {
-  const harness = await createHarness({ currentQuestion: 'What is the paper\'s main argument?' });
-  const recognition = harness.recognition();
-
-  harness.document.querySelector('#voiceConversationButton').click();
-  await harness.flush();
-  await harness.finishSpeech();
-  await harness.flush();
-
-  const firstQuestion = 'What is the paper\'s main argument?';
-  recognition.emitResult(firstQuestion, 0);
-  recognition.stop();
-  await harness.flush(5000);
-  assert.equal(harness.server.voiceTurnRequests.length, 1);
-  assert.equal(harness.document.querySelector('#answerText').value, firstQuestion);
-
-  await harness.voiceCoordinator.interrupt({ bargeIn: true });
-  await harness.flush();
-  assert.equal(harness.document.querySelector('#answerText').value, '');
-  assert.equal(harness.document.querySelector('#materialQuestion').value, '');
-  assert.equal(harness.document.querySelector('#materialAnswer').innerHTML, '');
-  assert.equal(recognition.started, true);
-
-  const nextQuestion = 'What study design did the researchers use?';
-  recognition.emitResult(nextQuestion, 0);
-  recognition.stop();
-  await harness.flush(5000);
-
-  assert.equal(harness.server.voiceTurnRequests.length, 2);
-  assert.equal(harness.server.voiceTurnRequests.at(-1).transcript, nextQuestion);
-});
-
 test('standalone speak-answer input auto-submits after five seconds of silence', async () => {
   const harness = await createHarness();
   const recognition = harness.recognition();
@@ -2028,7 +1855,7 @@ test('standalone speak-answer input auto-submits after five seconds of silence',
   recognition.emitResult('What is the paper\'s main argument?', 0);
   await harness.flush();
 
-  assert.equal(harness.document.querySelector('#answerText').value, '');
+  assert.equal(harness.document.querySelector('#answerText').value, 'What is the paper\'s main argument?');
   assert.match(harness.document.querySelector('#voiceState').textContent, /submit it after 5 seconds/i);
   assert.equal(harness.server.voiceTurnRequests.length, 0);
 
@@ -2100,7 +1927,7 @@ test('voice harness supports five spoken turns, interruption, typed fallback, an
   harness.document.querySelector('#voiceConversationButton').click();
   await harness.flush();
   assert.ok(recognition.startCount >= 1);
-  assert.match(harness.document.querySelector('#sourceDigestStatus').textContent, /overview|processing/i);
+  assert.match(harness.document.querySelector('#sourceDigestStatus').textContent, /processing/i);
 
   recognition.emitResult(transcripts[0], 0);
   recognition.stop();
@@ -2176,33 +2003,6 @@ test('voice harness routes realtime transcripts and approved speech through dete
   assert.equal(harness.server.voiceTurnRequests.at(-1).transcript, 'What evidence supports it?');
   assert.equal(channel.sent.at(-1).type, 'response.create');
   assert.match(channel.sent.at(-1).response.instructions, /Students who used retrieval practice remembered more after one week/i);
-});
-
-test('realtime sends the fully gathered local SDP offer and prepares mobile-safe remote audio', async () => {
-  const harness = await createHarness();
-
-  harness.document.querySelector('#liveVoiceButton').click();
-  for (let attempt = 0; attempt < 6; attempt += 1) await harness.flush();
-
-  assert.equal(harness.server.realtimeCalls.at(-1).sdp, 'local-offer-with-candidates');
-  const remoteAudio = harness.document.body.children.find(child => child.tagName === 'AUDIO');
-  assert.ok(remoteAudio, 'realtime should attach a remote audio element');
-  assert.equal(remoteAudio.autoplay, true);
-  assert.equal(remoteAudio.playsInline, true);
-  assert.equal(remoteAudio.className, 'remote-audio');
-  assert.equal(remoteAudio.playCount > 0, true);
-});
-
-test('realtime connection failure falls back to browser voice input', async () => {
-  const harness = await createHarness({ failRealtimeCall: true });
-
-  harness.document.querySelector('#liveVoiceButton').click();
-  for (let attempt = 0; attempt < 8; attempt += 1) await harness.flush();
-
-  assert.equal(harness.voiceCoordinator.transport, 'browser-fallback');
-  assert.equal(harness.voiceCoordinator.active, true);
-  assert.equal(harness.voiceCoordinator.standaloneListening, false);
-  assert.match(harness.document.querySelector('#voiceState').textContent, /listening|speak/i);
 });
 
 test('realtime reconnect replaces only the failed transport and preserves both retry attempts', async () => {
