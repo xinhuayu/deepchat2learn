@@ -19,7 +19,6 @@
         <div class="hero-copy">
           <p class="eyebrow">A vibrate place to think clearly</p>
           <h1>Turn Hot Conversations into Deep Learning</h1>
-          <p class="lede">Choose a topic, answer one question at a time, and get specific coaching you can use immediately.</p>
         </div>
         <section id="voicePermissionSetup" class="voice-permission-setup hidden" aria-hidden="true" aria-labelledby="voiceAccessTitle">
           <div class="voice-permission-copy">
@@ -29,7 +28,7 @@
           <button id="prepareVoiceButton" class="secondary" type="button">Enable voice access</button>
         </section>
         <form id="setupForm" class="card setup-card">
-          <label for="topic">What would you like to discuss today?</label>
+          <label for="topic">What would you like to discuss today? <span class="muted">(required)</span></label>
           <textarea id="topic" name="topic" rows="2" required placeholder="For example: Explain my research clearly to a non-specialist"></textarea>
           <div class="mode-grid" role="group" aria-label="Coaching mode">
             <label class="mode-option selected"><input type="radio" name="mode" value="practice" checked /><span><strong>Practice speaking</strong><small>Answer questions and improve your delivery.</small></span></label>
@@ -75,22 +74,25 @@
           <article class="card question-card">
             <div class="card-kicker">Your next question</div>
             <h3 id="questionText" aria-live="polite" aria-atomic="true"></h3>
-            <div class="question-actions"><button id="voiceConversationButton" class="secondary" type="button" aria-pressed="false">Start voice conversation</button><button id="listenButton" class="secondary" type="button" aria-pressed="false">◎ Speak answer</button><button id="liveVoiceButton" class="secondary" type="button" aria-pressed="false">◉ Connect live AI voice</button><button id="speakQuestion" class="secondary" type="button">▶ Read question aloud</button><button id="sourceQuestionButton" class="secondary hidden" type="button">Ask from my materials</button></div>
+            <div class="voice-primary-block">
+              <button id="voiceConversationButton" class="secondary" type="button" aria-pressed="false">Start voice conversation</button>
+              <div class="voice-status-block" role="group" aria-labelledby="voiceStateLabel" aria-describedby="voiceState voiceStateGuidance voiceCaptionText">
+                <div class="voice-status-head">
+                  <p id="voiceStateLabel" class="voice-state-label">Voice state: Idle</p>
+                  <button id="repeatSpokenLine" class="quiet-button" type="button" disabled>Repeat last spoken line</button>
+                </div>
+                <p id="voiceState" class="status-text" role="status" aria-live="polite">Voice idle. You can still type below.</p>
+                <p id="voiceStateGuidance" class="help">If voice is unavailable, type below. Press Ctrl+Enter or Cmd+Enter to submit a typed answer.</p>
+                <p id="voiceCaptionText" class="voice-caption" aria-live="polite">Latest spoken line captions will appear here.</p>
+                <p id="voiceLiveRegion" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></p>
+              </div>
+            </div>
+            <div class="question-actions"><button id="listenButton" class="secondary" type="button" aria-pressed="false">◎ Speak answer</button><button id="liveVoiceButton" class="secondary" type="button" aria-pressed="false">◉ Connect live AI voice</button><button id="speakQuestion" class="secondary" type="button">▶ Read question aloud</button><button id="sourceQuestionButton" class="secondary hidden" type="button">Ask from my materials</button></div>
             <div class="voice-toolbar" role="group" aria-label="Voice conversation controls">
               <button id="voicePauseButton" class="secondary" type="button" aria-pressed="false" aria-label="Pause voice conversation">Pause voice</button>
               <button id="voiceStopButton" class="secondary" type="button" aria-label="Stop voice conversation">Stop voice</button>
               <button id="voiceInterruptButton" class="secondary" type="button" aria-label="Interrupt spoken answer">Interrupt answer</button>
               <button id="voiceRetryButton" class="secondary" type="button" aria-label="Retry the last voice step">Retry voice step</button>
-            </div>
-            <div class="voice-status-block" role="group" aria-labelledby="voiceStateLabel" aria-describedby="voiceState voiceStateGuidance voiceCaptionText">
-              <div class="voice-status-head">
-                <p id="voiceStateLabel" class="voice-state-label">Voice state: Idle</p>
-                <button id="repeatSpokenLine" class="quiet-button" type="button" disabled>Repeat last spoken line</button>
-              </div>
-              <p id="voiceState" class="status-text" role="status" aria-live="polite">Voice idle. You can still type below.</p>
-              <p id="voiceStateGuidance" class="help">If voice is unavailable, type below. Press Ctrl+Enter or Cmd+Enter to submit a typed answer.</p>
-              <p id="voiceCaptionText" class="voice-caption" aria-live="polite">Latest spoken line captions will appear here.</p>
-              <p id="voiceLiveRegion" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></p>
             </div>
             <p id="microphoneStatus" class="microphone-status unknown" role="status" aria-live="polite">Microphone status: not checked yet. Start voice conversation to check access.</p>
             <section class="recording-panel" role="group" aria-label="Local recording controls">

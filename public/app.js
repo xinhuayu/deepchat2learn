@@ -2211,7 +2211,6 @@ async function submitAnswer({ voice = false, answer: submittedAnswer } = {}) {
     state.session.status = result.done ? 'ready_to_complete' : 'active';
     if (voice) {
       const spoken = result.feedback.answerSpeechText || [
-        result.feedback.academicResponse,
         `One useful next step: ${result.feedback.improvement}`,
         result.nextQuestion ? `Next question: ${result.nextQuestion}` : ''
       ].filter(Boolean).join(' ');

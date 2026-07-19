@@ -251,7 +251,9 @@ test('session layout keeps coaching notes at the bottom of the left panel and re
   assert.match(html, /id="answerText"[^>]*rows="5"/);
   assert.match(html, /id="questionLimit"[\s\S]*value="50"(?: selected)?\s*>50/);
   assert.match(html, /id="questionLimit"[\s\S]*value="200">200/);
-  assert.match(html, /class="question-actions"[\s\S]*id="voiceConversationButton"[\s\S]*id="listenButton"/);
+  assert.match(html, /id="questionText"[\s\S]*class="voice-primary-block"[\s\S]*id="voiceConversationButton"[\s\S]*class="voice-status-block"[\s\S]*id="voiceState"/);
+  assert.match(html, /class="voice-primary-block"[\s\S]*id="voiceConversationButton"[\s\S]*class="question-actions"[\s\S]*id="listenButton"/);
+  assert.doesNotMatch(html, /class="question-actions"[\s\S]*id="voiceConversationButton"/);
   assert.match(html, /class="voice-toolbar"[\s\S]*id="voicePauseButton"[\s\S]*id="voiceStopButton"/);
   assert.doesNotMatch(html, /id="voiceStatus"/);
   assert.match(html, /id="voiceState"[^>]*aria-live="polite"/);
@@ -702,7 +704,8 @@ test('landing page uses the deep-learning conversation copy', async () => {
   const app = await fs.readFile(new URL('../public/app.js', import.meta.url), 'utf8');
   assert.match(html, /A vibrate place to think clearly/);
   assert.match(html, /Turn Hot Conversations into Deep Learning/);
-  assert.match(html, /What would you like to discuss today\?/);
+  assert.match(html, /What would you like to discuss today\?[\s\S]*?\(required\)/i);
+  assert.doesNotMatch(html, /Choose a topic, answer one question at a time/);
   assert.match(html, /Adjust conversation options/);
   assert.match(html, /Supply document or notes and ask questions about them/);
   assert.match(html, /Start conversation/);

@@ -37,14 +37,15 @@ Add recording scenarios to the manual check list when you verify this build:
 
 1. Start a session and allow microphone access when prompted.
 2. Confirm the opening AI question is spoken before listening begins.
-3. Speak for at least 10 seconds with one or two natural pauses shorter than five seconds.
-4. Pause for five seconds and confirm the transcript submits automatically.
-5. Confirm the spoken response includes a concise answer and focused follow-up, then listening resumes.
-6. Speak while the AI is still answering. Confirm the AI speech stops, your transcript becomes the active answer, and the five-second silence window starts after your latest speech. The “Stop voice conversation” and “Speak answer” controls should darken while active.
-7. In a practice round, answer the question with a complete research claim or example. Confirm the academic conversation moves to a different related question. Say “new question” or “another issue” and confirm a fresh question appears without increasing the completed-answer count.
-8. Deny microphone permission once and confirm the typed controls remain usable.
-9. For Realtime testing, confirm microphone input is muted during AI audio, AI speech is not transcribed as user speech, the explicit Interrupt answer control opens the microphone, and disconnect/reconnect does not restart the academic session.
-10. On a mobile device, test both a browser with SpeechRecognition and one without it. When Realtime is configured, both should use the same live WebRTC path; when it is not configured, the app should use browser speech where available and provide typed fallback without blocking the session. If mobile audio autoplay is blocked, tap the page once after the connection message and confirm AI audio begins.
+3. On a mobile device, confirm the primary voice button and live processing/status message appear immediately below the AI question without scrolling.
+4. Speak for at least 10 seconds with one or two natural pauses shorter than five seconds.
+5. Pause for five seconds and confirm the transcript submits automatically.
+6. Confirm the spoken response includes a concise answer and focused follow-up, then listening resumes.
+7. Speak while the AI is still answering. Confirm the AI speech stops, your transcript becomes the active answer, and the five-second silence window starts after your latest speech. The “Stop voice conversation” and “Speak answer” controls should darken while active.
+8. In a practice round, answer the question with a complete research claim or example. Confirm the academic conversation moves to a different related question. Say “new question” or “another issue” and confirm a fresh question appears without increasing the completed-answer count.
+9. Deny microphone permission once and confirm the typed controls remain usable.
+10. For Realtime testing, confirm microphone input is muted during AI audio, AI speech is not transcribed as user speech, the explicit Interrupt answer control opens the microphone, and disconnect/reconnect does not restart the academic session.
+11. On a mobile device, test both a browser with SpeechRecognition and one without it. When Realtime is configured, both should use the same live WebRTC path; when it is not configured, the app should use browser speech where available and provide typed fallback without blocking the session. If mobile audio autoplay is blocked, tap the page once after the connection message and confirm AI audio begins.
 
 ## Source-material check
 

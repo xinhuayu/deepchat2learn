@@ -73,7 +73,7 @@ The package combines unit tests, API tests, source-ingestion tests, model-schema
 
 | Component | Responsibility |
 |---|---|
-| `public/index.html`, `public/styles.css` | Landing page, session layout, voice status display, responsive blue brand styling. |
+| `public/index.html`, `public/styles.css` | Landing page, mobile-first session layout, responsive blue brand styling, and a primary voice block placed directly below the AI question with the live voice status visible beside it. |
 | `public/app.js` | Browser state, API calls, voice UI, transcript handling, auto-submit, captions, history, recording controls. |
 | `public/audioRecording.js` | Opt-in local `MediaRecorder` capture; audio is kept in the browser and can be downloaded. |
 | `src/server.mjs` | HTTP API, static files, session routing, health reporting, source endpoints, voice endpoints, security headers. |
@@ -134,6 +134,8 @@ Each session has independent history, source material, question limits, digest s
 The browser owns turn-taking. With browser voice, `SpeechRecognition` captures the learner and `SpeechSynthesis` speaks the approved response. With Realtime enabled, the browser establishes WebRTC through `/api/realtime/call`; Realtime supplies audio transport, server VAD, and transcription events, while the backend text path remains authoritative for source grounding, answer evaluation, budgets, and session state.
 
 ### Voice safeguards
+
+The conversation card is ordered for mobile clarity: the AI question is followed immediately by the primary start/stop voice control and the live voice-status/processing block. Secondary voice actions, interruption controls, microphone status, and recording controls remain below it. This keeps messages such as "AI is speaking," "listening," and "processing your answer" visible without requiring the learner to scroll on a phone.
 
 - Microphone input is disabled while the AI is speaking, unless the learner explicitly interrupts the answer.
 - The interrupt action stops AI playback, invalidates any stale client response, clears the active answer/question draft and recognition buffer, and opens a fresh learner-listening turn.

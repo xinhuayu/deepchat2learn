@@ -502,7 +502,7 @@ async function buildCoachingResult({ turn, session, coach, skillProfile }) {
     feedback.improvement,
     followUp ? `Next question: ${followUp}` : ''
   ].filter(Boolean).join(' ');
-  const answerSpeechText = buildCoachingSpeechText({ academicResponse, feedback, followUp, fallback: answerText });
+  const answerSpeechText = buildCoachingSpeechText({ feedback, followUp });
   const approved = approveVoiceAnswer(turn, {
     answerText,
     answerSpeechText,
@@ -668,15 +668,12 @@ function buildFollowUp(raw) {
       : 'Would you like a follow-up example?');
 }
 
-function buildCoachingSpeechText({ academicResponse, feedback, followUp, fallback }) {
-  const approved = normalizeOptionalString(feedback?.answerSpeechText);
-  if (approved) return limitVoiceText(approved);
+function buildCoachingSpeechText({ feedback, followUp }) {
   const parts = [
-    normalizeOptionalString(academicResponse),
-    normalizeOptionalString(feedback?.improvement),
-    normalizeOptionalString(followUp)
+    feedback?.improvement ? `One useful next step: ${normalizeOptionalString(feedback.improvement)}` : '',
+    followUp ? `Next question: ${followUp}` : ''
   ].filter(Boolean);
-  return limitVoiceText(parts.length ? parts.join(' ') : requireNonEmptyString(fallback, 'answerSpeechText'));
+  return limitVoiceText(parts.length ? parts.join(' ') : 'Let us continue with the next question.');
 }
 
 function limitVoiceText(value, max = 600) {
@@ -748,7 +745,13 @@ function normalizeExternalKnowledgeStatus(value) {
 }
 
 function buildSourceSpeechText(answer) {
-  const base = requireNonEmptyString(answer.answerSpeechText || answer.answerText, 'answerSpeechText');
+  // In source-answer turns, academicAssessment is display-only metadata. Use the
+  // substantive answer field for speech so a model cannot accidentally read the
+  // relevance rationale aloud through its separate speech field.
+  const base = requireNonEmptyString(
+    answer.academicAssessment ? answer.answerText : (answer.answerSpeechText || answer.answerText),
+    'answerSpeechText'
+  );
   const followUp = normalizeOptionalString(answer.followUp);
   if (!followUp) return base;
   if (base.toLowerCase().includes(followUp.toLowerCase())) return base;

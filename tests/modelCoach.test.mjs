@@ -45,11 +45,14 @@ test('practice coaching uses a smaller output budget for concise spoken feedback
     }
   });
 
-  await coach.evaluateAnswer({ topic: 'A research paper', question: 'What is the main question?', answer: 'It asks whether the exposure predicts the outcome.' });
+  const feedback = await coach.evaluateAnswer({ topic: 'A research paper', question: 'What is the main question?', answer: 'It asks whether the exposure predicts the outcome.' });
 
   assert.equal(request.text.format.name, 'coaching_feedback');
   assert.equal(request.max_output_tokens, 500);
   assert.match(request.instructions, /two or three short sentences|brief spoken/i);
+  assert.match(request.instructions, /display-only coaching notes/i);
+  assert.match(feedback.answerSpeechText, /Add one example|Next question/i);
+  assert.doesNotMatch(feedback.answerSpeechText, /Your answer is relevant|academic connection/i);
 });
 
 test('source digestion keeps a patient timeout separate from interactive turns', async () => {

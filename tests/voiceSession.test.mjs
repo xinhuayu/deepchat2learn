@@ -130,7 +130,7 @@ test('validateVoiceState only allows declared transitions', () => {
   assert.equal(validateVoiceState('made_up_state', 'idle'), false);
 });
 
-test('voice coaching speaks the academic response before a response-linked follow-up', async () => {
+test('voice coaching keeps academic response notes out of spoken feedback', async () => {
   const session = {
     id: 'session-coaching-1',
     topic: 'epidemiology',
@@ -174,7 +174,8 @@ test('voice coaching speaks the academic response before a response-linked follo
       }
     }
   });
-  assert.match(result.answerSpeechText, /Academically, a cohort study/i);
+  assert.doesNotMatch(result.answerSpeechText, /Academically, a cohort study/i);
+  assert.match(result.answerSpeechText, /Add the outcome definition/i);
   assert.match(result.answerSpeechText, /What outcome would you measure/i);
   assert.equal(result.feedback.academicAssessment.label, 'direct');
 });
@@ -508,7 +509,7 @@ test('source conversation evaluates an answer against the active question withou
         received = input;
         return {
           answerText: 'The paper uses a longitudinal cohort design.',
-          answerSpeechText: 'The paper uses a longitudinal cohort design.',
+          answerSpeechText: 'Your answer is directly relevant. The paper uses a longitudinal cohort design.',
           sourceClaims: [{ claim: 'The researchers used a longitudinal cohort design.', chunkId: chunk.id, citationExcerpt: chunk.text }],
           llmBackground: [],
           discussionPoints: ['Now consider how the design supports temporality.'],
@@ -530,6 +531,8 @@ test('source conversation evaluates an answer against the active question withou
   assert.equal(result.turn.intent, 'source_answer');
   assert.equal(result.feedback, undefined);
   assert.equal(result.academicAssessment.label, 'direct');
+  assert.doesNotMatch(result.answerSpeechText, /directly relevant/i);
+  assert.match(result.answerSpeechText, /longitudinal cohort design/i);
   assert.equal(result.strengths, undefined);
   assert.equal(result.improvement, undefined);
   assert.equal(result.exampleAnswer, undefined);

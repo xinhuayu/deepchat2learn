@@ -15,6 +15,7 @@ For the current milestone state, completed-feature checklist, verified test evid
 - Preserved the clean `public/brand-logo.png` asset and bundled skills.
 - Added the full architecture and usage summary in `document/SYSTEM-SUMMARY.md`.
 - Added conversation controls for closing a session, moving to a new topic, and asking direct explanatory questions without misclassifying them as answer submissions.
+- Placed the primary voice control and live voice-status message directly below the AI question for mobile visibility; secondary controls remain below the primary voice block.
 
 ## Verification checklist
 
@@ -43,7 +44,7 @@ The current package is tested against the OpenAI API contract. Keys from other p
 
 Complex PDFs are the main reason to install Python. Text-based PDFs, DOCX/Word, TXT, Markdown, and pasted notes remain usable on a normal Node-only web host. For layout-heavy, table-rich, figure-heavy, or scanned research papers, configure the host's Python executable and install PDF-processing packages such as `pdfplumber` and/or `PyMuPDF`; add OCR or vision tooling separately when scanned pages or visual figure interpretation are required. If Python is not installed, keep the variable blank and use the built-in Node extraction fallback.
 
-During a live session, finalized voice text remains visible while the model is processing. Closing phrases prepare the session summary and preserve transcript/audio export options; move-on phrases advance the academic agenda without using an answer round.
+During a live session, finalized voice text remains visible while the model is processing. The question card places the voice control and current processing status immediately below the AI question so mobile users can see the active state. Closing phrases prepare the session summary and preserve transcript/audio export options; move-on phrases advance the academic agenda without using an answer round.
 
 ## Distribution cautions
 
