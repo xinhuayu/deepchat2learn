@@ -66,6 +66,8 @@ textarea { resize: vertical; line-height: 1.5; }
 .quiet-button { background: transparent; color: var(--muted); }
 .danger-button { display: block; margin: 18px auto 0; background: transparent; color: #a14436; }
 .privacy-note { text-align: center; margin: 14px 0 0; }
+.voice-permission-setup { display: grid; justify-items: center; gap: 8px; margin-top: 14px; }
+.voice-permission-setup .privacy-note { margin: 0; }
 .session-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; }
 .progress-row { display: flex; gap: 14px; align-items: center; margin-bottom: 18px; color: var(--muted); font-size: 13px; }
 .progress-track { height: 7px; flex: 1; background: #dceafa; border-radius: 9px; overflow: hidden; }

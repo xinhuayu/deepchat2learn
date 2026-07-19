@@ -4,7 +4,7 @@
 
 The package is suitable for local testing and controlled demonstration after the checks below. It is not a production multi-user service yet. The clean distribution copy contains only `.env.example`; create a private local `.env` from it only when provider-backed testing is needed.
 
-For the current milestone state, completed-feature checklist, verified test evidence, limitations, and next priorities, see [MILESTONE-SUMMARY-2026-07-19.md](MILESTONE-SUMMARY-2026-07-19.md).
+For the current milestone state, completed-feature checklist, verified test evidence, limitations, and next priorities, see the canonical [SYSTEM-SUMMARY.md](SYSTEM-SUMMARY.md), under the milestone record section. `MILESTONE-SUMMARY-2026-07-19.md` is retained only as a compatibility pointer.
 
 ## Clean-up completed
 

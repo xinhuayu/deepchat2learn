@@ -560,6 +560,25 @@ test('session reset restores the visual practice-mode selection', async () => {
   assert.match(reset, /syncModeSelection\(\)/);
 });
 
+test('session reset clears browser speech priming state and resolves pending probes', async () => {
+  const app = await fs.readFile(new URL('../public/app.js', import.meta.url), 'utf8');
+  const reset = app.match(/\$\('#newSession'\)[\s\S]*?\n\$\('#deleteData'/)?.[0];
+  assert.ok(reset, 'new-session reset handler should be present');
+  for (const field of [
+    'recognitionActive: false',
+    'speechRecognitionPriming: false',
+    'speechRecognitionReady: false',
+    'speechRecognitionPrimePromise: null',
+    'speechRecognitionPrimeResolve: null',
+    'speechRecognitionPrimeTimer: null'
+  ]) assert.match(reset, new RegExp(field.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  assert.match(app, /function cancelSpeechRecognitionPrime\(\)[\s\S]*?finishSpeechRecognitionPrime\(false\)/);
+  assert.match(reset, /stopSpeechRecognition\(\{ cancelPriming: true \}\)/);
+  const deletion = app.match(/\$\('#deleteData'\)\.addEventListener[\s\S]*?\n\}\);/)?.[0];
+  assert.ok(deletion, 'session deletion handler should be present');
+  assert.match(deletion, /stopSpeechRecognition\(\{ cancelPriming: true \}\)/);
+});
+
 test('answer textarea supports Ctrl or Cmd plus Enter submission', async () => {
   const app = await fs.readFile(new URL('../public/app.js', import.meta.url), 'utf8');
   assert.match(app, /\$\('#answerText'\)\.addEventListener\('keydown'/);
@@ -603,13 +622,13 @@ test('browser voice input exposes its listening state accessibly', async () => {
 
 test('session lifecycle stops browser voice recognition', async () => {
   const app = await fs.readFile(new URL('../public/app.js', import.meta.url), 'utf8');
-  assert.match(app, /function stopSpeechRecognition\(\)/);
+  assert.match(app, /function stopSpeechRecognition\(\{ cancelPriming = false \} = \{\}\)/);
   assert.match(app, /state\.recognition\.stop\(\)/);
   const completion = app.match(/async function completeSession\(\).*?\n\}/s)?.[0];
   assert.ok(completion, 'session completion flow should be present');
   assert.match(completion, /stopLiveVoice\(\)/);
   assert.match(completion, /stopSpeechRecognition\(\)/);
-  assert.match(app, /stopSpeechRecognition\(\); clearClientSession\(\)/);
+  assert.match(app, /stopSpeechRecognition\((?:\{ cancelPriming: true \})?\); clearClientSession\(\)/);
 });
 
 test('finalized voice transcripts persist the canonical draft before review', async () => {
@@ -763,8 +782,8 @@ test('voice-first mode starts recognition after speaking the current question an
 test('speech playback supports completion and error callbacks', async () => {
   const app = await fs.readFile(new URL('../public/app.js', import.meta.url), 'utf8');
   assert.match(app, /function speak\(text, \{ onend, onerror \} = \{\}\)/);
-  assert.match(app, /utterance\.onend = onend/);
-  assert.match(app, /utterance\.onerror = onerror/);
+  assert.match(app, /utterance\.onend = \(\) => finish\(onend\)/);
+  assert.match(app, /utterance\.onerror = \(\) => finish\(onerror\)/);
 });
 
 test('voice recognition auto-submits a finalized non-empty transcript', async () => {
@@ -790,7 +809,7 @@ test('voice feedback speaks before the next question and recognition restarts on
 
 test('voice-first mode explicitly requests microphone permission before speaking', async () => {
   const app = await fs.readFile(new URL('../public/app.js', import.meta.url), 'utf8');
-  assert.match(app, /function requestMicrophoneAccess\(\)/);
+  assert.match(app, /function requestMicrophoneAccess\(\{ reportError = true \} = \{\}\)/);
   assert.match(app, /navigator\.mediaDevices\.getUserMedia\(microphoneConstraints\)/);
   assert.match(app, /echoCancellation: true/);
   assert.match(app, /noiseSuppression: true/);
@@ -892,8 +911,10 @@ test('voice UI exposes microphone accessibility status', async () => {
 test('voice readiness messaging distinguishes browser audio from microphone permission', async () => {
   const app = await fs.readFile(new URL('../public/app.js', import.meta.url), 'utf8');
   const html = await fs.readFile(new URL('../public/index.html', import.meta.url), 'utf8');
+  assert.match(html, /id="prepareVoiceButton"/);
+  assert.match(app, /function prepareVoiceAccess\(\)/);
   assert.match(app, /Browser audio playback is available/);
-  assert.match(app, /permission will be requested when you start voice/);
+  assert.match(app, /allow microphone and browser speech recognition if prompted/);
   assert.match(app, /navigator\.permissions\.query\(\{ name: 'microphone' \}\)/);
   assert.match(app, /permission\.state === 'granted'/);
   assert.match(app, /permission\.state === 'denied'/);

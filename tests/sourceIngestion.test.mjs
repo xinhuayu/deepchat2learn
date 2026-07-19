@@ -134,7 +134,9 @@ test('preserves binary PDF bytes when invoking the optional research extractor',
   assert.match(result.text, /cohort study estimates/i);
 });
 
-const suppliedResearchPdf = 'C:/Users/yuxin/OneDrive/Desktop/Cognitive Trajectories and Subsequent Health Status.pdf';
+// Optional local integration fixture. Keep developer-specific paths out of the
+// distribution; set DEEPCHAT2LEARN_RESEARCH_PDF when running this test locally.
+const suppliedResearchPdf = process.env.DEEPCHAT2LEARN_RESEARCH_PDF || '';
 test('extracts the supplied cognitive-trajectories paper with the optional research extractor', { skip: !configuredPython || !fs.existsSync(suppliedResearchPdf) }, () => {
   const pdf = fs.readFileSync(suppliedResearchPdf);
   const result = normalizeSourceInput({ name: 'Cognitive Trajectories and Subsequent Health Status.pdf', fileBase64: pdf.toString('base64'), mimeType: 'application/pdf' }, { pdfPythonBin: configuredPython });

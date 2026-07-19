@@ -20,7 +20,7 @@ const BROWSER_CONVERSATION_STATES = [
 const microphoneConstraints = {
   audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
 };
-let state = { session: null, token: null, mode: 'practice', sourceLimits: { maxFiles: 10, maxFileBytes: 20_000_000 }, recognition: null, recognitionActive: false, peer: null, localStream: null, dataChannel: null, remoteAudio: null, pendingSource: null, processedVoiceItems: new Set(), voiceReviewPending: false, voiceConversation: 'off', browserConversationState: 'idle', voiceAnnouncement: '', voiceSubmissionKey: null, voiceRecognitionSessionId: 0, voiceRecognitionAttempts: 0, voiceRecognitionRetryPending: false, transcript: [], materialHistory: [], summary: null, lastFeedback: null, lastSpokenLine: '' };
+let state = { session: null, token: null, mode: 'practice', sourceLimits: { maxFiles: 10, maxFileBytes: 20_000_000 }, recognition: null, recognitionActive: false, speechRecognitionPriming: false, speechRecognitionReady: false, speechRecognitionPrimePromise: null, speechRecognitionPrimeResolve: null, speechRecognitionPrimeTimer: null, peer: null, localStream: null, dataChannel: null, remoteAudio: null, pendingSource: null, processedVoiceItems: new Set(), voiceReviewPending: false, voiceConversation: 'off', browserConversationState: 'idle', voiceAnnouncement: '', voiceSubmissionKey: null, voiceRecognitionSessionId: 0, voiceRecognitionAttempts: 0, voiceRecognitionRetryPending: false, transcript: [], materialHistory: [], summary: null, lastFeedback: null, lastSpokenLine: '' };
 let sourceProcessingTimers = [];
 let sourceDigestRequest = null;
 let recordingController = null;
@@ -28,6 +28,8 @@ let recordingOptIn = false;
 let recordingInputStream = null;
 let recordingInputBorrowed = false;
 let recordingRemoteStatusMessage = '';
+let speechPlaybackFallbackTimer = null;
+let speechPlaybackGeneration = 0;
 
 function formatRecordingElapsed(ms = 0) {
   const totalSeconds = Math.max(0, Math.floor(Number(ms || 0) / 1000));
@@ -300,7 +302,7 @@ async function loadServiceStatus() {
       : '';
     status.textContent = `${coach}${voice}${storage}${privacyNote}`;
     const browserAudioNote = $('#browser-audio-note');
-    if (browserAudioNote) browserAudioNote.textContent = 'Browser audio playback is available. Microphone permission will be requested when you start voice.';
+    if (browserAudioNote) browserAudioNote.textContent = 'Browser audio playback is available. On iPhone, tap Enable voice access and allow microphone and browser speech recognition if prompted.';
   } catch {
     status.textContent = 'Coaching service status is unavailable. You can still start a local session.';
   }
@@ -426,11 +428,35 @@ function speak(text, { onend, onerror } = {}) {
     return;
   }
   setLastSpokenLine(text);
+  if (speechPlaybackFallbackTimer) {
+    window.clearTimeout(speechPlaybackFallbackTimer);
+    speechPlaybackFallbackTimer = null;
+  }
+  const generation = ++speechPlaybackGeneration;
+  let settled = false;
+  const finish = callback => {
+    if (settled || generation !== speechPlaybackGeneration) return;
+    settled = true;
+    if (speechPlaybackFallbackTimer) {
+      window.clearTimeout(speechPlaybackFallbackTimer);
+      speechPlaybackFallbackTimer = null;
+    }
+    callback?.();
+  };
   window.speechSynthesis.cancel();
   const utterance = new SpeechSynthesisUtterance(text);
-  utterance.onend = onend;
-  utterance.onerror = onerror;
+  utterance.onend = () => finish(onend);
+  utterance.onerror = () => finish(onerror);
   window.speechSynthesis.speak(utterance);
+  // Some mobile Safari versions can leave SpeechSynthesis speaking without
+  // delivering onend or onerror. Use a conservative estimate so voice input
+  // can resume, while allowing ordinary long answers to finish naturally.
+  const estimatedPlaybackMs = Math.min(90_000, Math.max(4_000, Math.ceil(String(text || '').length * 80) + 3_000));
+  speechPlaybackFallbackTimer = window.setTimeout(() => {
+    if (settled || generation !== speechPlaybackGeneration) return;
+    setVoiceAnnouncement('Audio playback did not report completion. Starting browser voice input now.');
+    finish(onend);
+  }, estimatedPlaybackMs);
 }
 
 function emitVoiceEvent(type, detail = {}) {
@@ -1001,16 +1027,17 @@ function buildApprovedSpeechRequest(answerSpeechText, externalResearchSpeechText
   };
 }
 
-function speakLayeredAnswer({ answerSpeechText, externalResearchSpeechText, oncomplete } = {}) {
+function speakLayeredAnswer({ answerSpeechText, externalResearchSpeechText, oncomplete, onerror } = {}) {
   const primary = String(answerSpeechText || '').trim();
   const external = String(externalResearchSpeechText || '').trim();
   if (!primary) return;
   if (!external) {
-    speak(primary, { onend: oncomplete });
+    speak(primary, { onend: oncomplete, onerror });
     return;
   }
   speak(primary, {
-    onend: () => speak(external, { onend: oncomplete })
+    onend: () => speak(external, { onend: oncomplete, onerror }),
+    onerror
   });
 }
 
@@ -1120,9 +1147,15 @@ const voiceCoordinator = {
   preserveUserSpeakingUntilNextResult: false,
   lastTranscriptKey: null,
   lastTurnId: null,
-  start: async ({ transport = 'browser-fallback', reconnecting = false } = {}) => {
+  start: async ({ transport = 'browser-fallback', reconnecting = false, speechRecognitionPrime = null } = {}) => {
     if (!state.session) throw new Error('Start a session before using voice.');
     if (transport === 'browser-fallback' && !state.recognition) throw new Error('Speech recognition is unavailable in this browser.');
+    if (speechRecognitionPrime) {
+      const primed = await speechRecognitionPrime;
+      if (!primed && transport === 'browser-fallback') {
+        throw new Error('Browser speech recognition did not start. Tap Speak answer and allow browser speech recognition when prompted.');
+      }
+    }
     voiceCoordinator.active = true;
     if (voiceCoordinator.standaloneListening) stopSpeechRecognition();
     voiceCoordinator.standaloneListening = false;
@@ -1136,11 +1169,12 @@ const voiceCoordinator = {
     clearVoiceResumeTimer();
     clearVoiceCompletionTimer();
     emitAndApplyVoiceEvent('permission_pending', { transport });
-    await api(`/api/voice/sessions/${state.session.id}/start`, { method: 'POST' }).catch(() => null);
-    if (!await requestMicrophoneAccess()) {
+    const microphoneAccess = requestMicrophoneAccess();
+    if (!await microphoneAccess) {
       voiceCoordinator.active = false;
       throw new Error('Microphone access could not be started.');
     }
+    await api(`/api/voice/sessions/${state.session.id}/start`, { method: 'POST' }).catch(() => null);
     if (transport === 'realtime') {
       await openRealtimeVoiceTransport({ reconnecting });
     }
@@ -1153,7 +1187,14 @@ const voiceCoordinator = {
       speak(state.session.currentQuestion, { onend: () => {
         emitAndApplyVoiceEvent('speech_ended', { questionPrompt: true });
       },
-      onerror: () => emitAndApplyVoiceEvent('recoverable_error', { message: 'Question playback stopped.' })
+      onerror: () => {
+        if (voiceCoordinator.transport === 'browser-fallback' && voiceCoordinator.active && voiceCoordinator.shouldAutoResume) {
+          setVoiceAnnouncement('Audio playback was unavailable. Starting browser voice input now.');
+          voiceCoordinator.resume().catch(error => setVoiceConversationError(error?.message || 'Browser voice input could not start.'));
+        } else {
+          emitAndApplyVoiceEvent('recoverable_error', { message: 'Question playback stopped.' });
+        }
+      }
       });
       emitAndApplyVoiceEvent('speech_started', { questionPrompt: true });
       return;
@@ -1385,6 +1426,14 @@ const voiceCoordinator = {
           voiceCoordinator.state = 'idle';
           setVoiceConversationState('off');
         }
+      },
+      onerror: () => {
+        if (voiceCoordinator.transport === 'browser-fallback' && voiceCoordinator.active && voiceCoordinator.shouldAutoResume) {
+          setVoiceAnnouncement('Audio playback was unavailable. Starting browser voice input now.');
+          voiceCoordinator.resume().catch(error => setVoiceConversationError(error?.message || 'Browser voice input could not start.'));
+        } else {
+          emitAndApplyVoiceEvent('recoverable_error', { message: 'Answer playback stopped.' });
+        }
       }
     });
   }
@@ -1495,6 +1544,13 @@ function setMicrophoneStatus(status, message = '') {
   element.textContent = message || copy[status] || copy.unknown;
 }
 
+function setBrowserAudioNote(message, busy = false) {
+  const element = $('#browser-audio-note');
+  if (!element) return;
+  element.textContent = message;
+  element.setAttribute('aria-busy', String(busy));
+}
+
 async function refreshMicrophoneStatus() {
   setMicrophoneStatus('unknown');
   if (!navigator.permissions?.query) return;
@@ -1512,14 +1568,16 @@ async function refreshMicrophoneStatus() {
   }
 }
 
-async function requestMicrophoneAccess() {
+async function requestMicrophoneAccess({ reportError = true } = {}) {
   if (!navigator.mediaDevices?.getUserMedia) {
-    setVoiceConversationError('This browser cannot request microphone access.');
+    const message = 'This browser cannot request microphone access.';
     setMicrophoneStatus('unavailable');
+    if (reportError) setVoiceConversationError(message);
+    else setBrowserAudioNote(message);
     return false;
   }
   setMicrophoneStatus('checking');
-  setVoiceAnnouncement('Please allow microphone access when your browser asks.');
+  if (reportError) setVoiceAnnouncement('Please allow microphone access when your browser asks.');
   try {
     const stream = await navigator.mediaDevices.getUserMedia(microphoneConstraints);
     stream.getTracks().forEach(track => track.stop());
@@ -1531,7 +1589,8 @@ async function requestMicrophoneAccess() {
       ? 'Microphone access was denied. Please allow microphone access in the browser address bar and try again.'
       : 'Microphone access could not be started.';
     setMicrophoneStatus(denied ? 'denied' : 'unavailable');
-    setVoiceConversationError(message);
+    if (reportError) setVoiceConversationError(message);
+    else setBrowserAudioNote(message);
     return false;
   }
 }
@@ -1618,11 +1677,43 @@ function speakQuestionAndListen(question) {
   });
 }
 
+async function prepareVoiceAccess() {
+  const button = $('#prepareVoiceButton');
+  if (button) {
+    button.disabled = true;
+    button.setAttribute('aria-busy', 'true');
+    button.textContent = 'Preparing voice access...';
+  }
+  setBrowserAudioNote('Please allow microphone and browser speech recognition if your browser asks.', true);
+  // Both permission requests begin from this button gesture. The speech
+  // probe is especially important on mobile browsers that reject a first
+  // recognition.start() after an asynchronous network request.
+  const speechRecognitionPrime = primeBrowserSpeechRecognition();
+  const microphoneAccess = requestMicrophoneAccess({ reportError: false });
+  const [speechReady, microphoneReady] = await Promise.all([speechRecognitionPrime, microphoneAccess]);
+  if (microphoneReady && speechReady) {
+    setBrowserAudioNote('Voice access is ready. Start a conversation when you are ready.');
+  } else if (microphoneReady) {
+    setBrowserAudioNote(state.recognition
+      ? 'Microphone access is ready. Tap Start voice conversation and allow browser speech recognition if prompted.'
+      : 'Microphone access is ready. This browser does not provide browser speech recognition; try live AI voice or typing.');
+  } else {
+    setBrowserAudioNote('Microphone permission is still needed. Choose Allow in the browser prompt or site settings, then try again.');
+  }
+  if (button) {
+    button.disabled = false;
+    button.setAttribute('aria-busy', 'false');
+    button.textContent = 'Check voice access again';
+  }
+  return { speechReady, microphoneReady };
+}
+
 async function startVoiceConversation() {
   state.voiceRecognitionAttempts = 0;
   state.voiceRecognitionRetryPending = false;
+  const speechRecognitionPrime = primeBrowserSpeechRecognition();
   try {
-    await voiceCoordinator.start({ transport: 'browser-fallback' });
+    await voiceCoordinator.start({ transport: 'browser-fallback', speechRecognitionPrime });
   } catch (error) {
     setVoiceConversationError(error.message || 'Voice input could not start.');
   }
@@ -2484,6 +2575,7 @@ async function connectLiveVoice() {
     voiceCoordinator.stop();
     return;
   }
+  const speechRecognitionPrime = primeBrowserSpeechRecognition();
   try {
     await voiceCoordinator.start({ transport: 'realtime' });
   } catch (error) {
@@ -2491,7 +2583,7 @@ async function connectLiveVoice() {
     if (state.recognition) {
       try {
         setVoiceAnnouncement('Live AI voice could not connect. Starting browser voice input instead.');
-        await voiceCoordinator.start({ transport: 'browser-fallback' });
+        await voiceCoordinator.start({ transport: 'browser-fallback', speechRecognitionPrime });
         notify('Live AI voice could not connect, so browser voice input is active instead.');
         return;
       } catch (fallbackError) {
@@ -2651,6 +2743,13 @@ function setupSpeechRecognition() {
   state.recognition.maxAlternatives = 1;
   state.recognition.onstart = () => {
     state.recognitionActive = true;
+    if (state.speechRecognitionPriming) {
+      setVoiceAnnouncement('Browser speech recognition is allowed. Preparing voice conversation...');
+      window.setTimeout(() => {
+        if (state.speechRecognitionPriming) stopSpeechRecognition();
+      }, 0);
+      return;
+    }
     state.voiceRecognitionSessionId += 1;
     beginRecognitionCycle(state.voiceRecognitionSessionId);
     state.voiceRecognitionAttempts = 0;
@@ -2663,6 +2762,11 @@ function setupSpeechRecognition() {
   state.recognition.onerror = event => {
     state.recognitionActive = false;
     setListeningState(false);
+    if (state.speechRecognitionPriming) {
+      finishSpeechRecognitionPrime(false);
+      setVoiceAnnouncement('Browser speech recognition was not allowed. Tap Speak answer and allow it when prompted.');
+      return;
+    }
     if (state.voiceConversation === 'off') return;
     const code = event.error || 'unknown';
     if (state.voiceConversation === 'listening' && ['aborted', 'no-speech', 'network'].includes(code)) {
@@ -2682,6 +2786,10 @@ function setupSpeechRecognition() {
   state.recognition.onend = () => {
     state.recognitionActive = false;
     setListeningState(false);
+    if (state.speechRecognitionPriming) {
+      finishSpeechRecognitionPrime(true);
+      return;
+    }
     commitRecognitionCycle();
     if (voiceCoordinator.pendingTranscript) {
       voiceCoordinator.scheduleTranscriptSubmission();
@@ -2703,11 +2811,52 @@ function setupSpeechRecognition() {
   };
 }
 
-function stopSpeechRecognition() {
+function cancelSpeechRecognitionPrime() {
+  if (state.speechRecognitionPriming) finishSpeechRecognitionPrime(false);
+}
+
+function stopSpeechRecognition({ cancelPriming = false } = {}) {
+  if (cancelPriming) cancelSpeechRecognitionPrime();
   if (!state.recognition) return;
   try { state.recognition.stop(); } catch { /* Recognition may already be idle. */ }
   state.recognitionActive = false;
   setListeningState(false);
+}
+
+function finishSpeechRecognitionPrime(success) {
+  if (!state.speechRecognitionPriming) return;
+  if (state.speechRecognitionPrimeTimer) {
+    window.clearTimeout(state.speechRecognitionPrimeTimer);
+    state.speechRecognitionPrimeTimer = null;
+  }
+  const resolve = state.speechRecognitionPrimeResolve;
+  state.speechRecognitionPriming = false;
+  state.speechRecognitionReady = Boolean(success);
+  state.speechRecognitionPrimeResolve = null;
+  state.speechRecognitionPrimePromise = null;
+  resolve?.(Boolean(success));
+}
+
+function primeBrowserSpeechRecognition() {
+  if (!state.recognition) return Promise.resolve(false);
+  if (state.speechRecognitionPriming) return state.speechRecognitionPrimePromise;
+  if (state.speechRecognitionReady) return Promise.resolve(true);
+  if (state.recognitionActive) return Promise.resolve(true);
+
+  state.speechRecognitionPriming = true;
+  state.speechRecognitionPrimePromise = new Promise(resolve => {
+    state.speechRecognitionPrimeResolve = resolve;
+  });
+  setVoiceAnnouncement('Please allow microphone and browser speech recognition if your browser asks.');
+  try {
+    // Start directly from the voice button gesture. Safari and Firefox can
+    // reject recognition.start() when it is first called after async work.
+    state.recognition.start();
+    state.speechRecognitionPrimeTimer = window.setTimeout(() => finishSpeechRecognitionPrime(false), 15_000);
+  } catch {
+    finishSpeechRecognitionPrime(false);
+  }
+  return state.speechRecognitionPrimePromise || Promise.resolve(false);
 }
 
 document.querySelectorAll('input[name="mode"]').forEach(input => input.addEventListener('change', event => { state.mode = event.target.value; $('.mode-option.selected')?.classList.remove('selected'); event.target.closest('.mode-option').classList.add('selected'); $('#sourceSetup').classList.toggle('hidden', state.mode !== 'materials'); syncConversationDefaults(); syncQuestionLimitOptions(); }));
@@ -2748,6 +2897,7 @@ $('#stopRecordingButton').addEventListener('click', () => { stopRecordingAndKeep
 $('#discardRecordingButton').addEventListener('click', discardRecording);
 $('#downloadRecordingButton').addEventListener('click', () => { downloadRecording('recording').catch(() => null); });
 $('#downloadRecordingSummaryButton').addEventListener('click', () => { downloadRecording('summary').catch(() => null); });
+$('#prepareVoiceButton')?.addEventListener('click', () => { prepareVoiceAccess().catch(error => setBrowserAudioNote(error?.message || 'Voice access could not be prepared.')); });
 $('#listenButton').addEventListener('click', () => {
   if (!state.recognition) return;
   if (voiceCoordinator.standaloneListening) {
@@ -2797,7 +2947,7 @@ $('#endSession').addEventListener('click', () => {
   completeSession().catch(notifyError).finally(() => setEndSessionProcessing(false));
 });
 $('#sourceText').addEventListener('input', () => { state.pendingSource = null; });
-$('#newSession').addEventListener('click', () => { discardRecording(); stopLiveVoice(); stopVoiceConversation(); stopSpeechRecognition(); clearClientSession(); clearAdditionalSourceDraft(); state = { session: null, token: null, mode: 'practice', sourceLimits: state.sourceLimits, recognition: state.recognition, peer: null, localStream: null, dataChannel: null, remoteAudio: null, pendingSource: null, processedVoiceItems: new Set(), voiceReviewPending: false, voiceConversation: 'off', browserConversationState: 'idle', voiceAnnouncement: '', voiceSubmissionKey: null, voiceRecognitionSessionId: 0, voiceRecognitionAttempts: 0, voiceRecognitionRetryPending: false, transcript: [], materialHistory: [], summary: null, lastFeedback: null, lastSpokenLine: '' }; $('#setupForm').reset(); syncConversationDefaults(); syncModeSelection(); syncQuestionLimitOptions(); clearSourceNameAutoMarker(); $('#sourceSetup').classList.add('hidden'); show('setupView'); renderBrowserConversationState(); });
+$('#newSession').addEventListener('click', () => { discardRecording(); stopLiveVoice(); stopVoiceConversation(); stopSpeechRecognition({ cancelPriming: true }); clearClientSession(); clearAdditionalSourceDraft(); state = { session: null, token: null, mode: 'practice', sourceLimits: state.sourceLimits, recognition: state.recognition, recognitionActive: false, speechRecognitionPriming: false, speechRecognitionReady: false, speechRecognitionPrimePromise: null, speechRecognitionPrimeResolve: null, speechRecognitionPrimeTimer: null, peer: null, localStream: null, dataChannel: null, remoteAudio: null, pendingSource: null, processedVoiceItems: new Set(), voiceReviewPending: false, voiceConversation: 'off', browserConversationState: 'idle', voiceAnnouncement: '', voiceSubmissionKey: null, voiceRecognitionSessionId: 0, voiceRecognitionAttempts: 0, voiceRecognitionRetryPending: false, transcript: [], materialHistory: [], summary: null, lastFeedback: null, lastSpokenLine: '' }; $('#setupForm').reset(); syncConversationDefaults(); syncModeSelection(); syncQuestionLimitOptions(); clearSourceNameAutoMarker(); $('#sourceSetup').classList.add('hidden'); show('setupView'); renderBrowserConversationState(); });
 $('#deleteData').addEventListener('click', async () => {
   if ($('#deleteData').disabled || !confirmLeavingWithDraft()) return;
   setDeleteDataProcessing(true);
@@ -2805,10 +2955,11 @@ $('#deleteData').addEventListener('click', async () => {
     discardRecording();
     stopLiveVoice();
     stopVoiceConversation();
+    stopSpeechRecognition({ cancelPriming: true });
     await api(`/api/sessions/${state.session.id}`, { method: 'DELETE' });
     clearAdditionalSourceDraft();
     clearClientSession();
-    state = { session: null, token: null, mode: 'practice', sourceLimits: state.sourceLimits, recognition: state.recognition, peer: null, localStream: null, dataChannel: null, remoteAudio: null, pendingSource: null, processedVoiceItems: new Set(), voiceReviewPending: false, voiceConversation: 'off', browserConversationState: 'idle', voiceAnnouncement: '', voiceSubmissionKey: null, voiceRecognitionSessionId: 0, voiceRecognitionAttempts: 0, voiceRecognitionRetryPending: false, transcript: [], materialHistory: [], summary: null, lastFeedback: null, lastSpokenLine: '' };
+    state = { session: null, token: null, mode: 'practice', sourceLimits: state.sourceLimits, recognition: state.recognition, recognitionActive: false, speechRecognitionPriming: false, speechRecognitionReady: false, speechRecognitionPrimePromise: null, speechRecognitionPrimeResolve: null, speechRecognitionPrimeTimer: null, peer: null, localStream: null, dataChannel: null, remoteAudio: null, pendingSource: null, processedVoiceItems: new Set(), voiceReviewPending: false, voiceConversation: 'off', browserConversationState: 'idle', voiceAnnouncement: '', voiceSubmissionKey: null, voiceRecognitionSessionId: 0, voiceRecognitionAttempts: 0, voiceRecognitionRetryPending: false, transcript: [], materialHistory: [], summary: null, lastFeedback: null, lastSpokenLine: '' };
     show('setupView');
     notify('Session data deleted.');
   } catch (error) { notifyError(error); }

@@ -2,7 +2,7 @@
 
 This is a clean testable build of deepchat2learn. It requires Node.js 22.5 or newer and does not require Python.
 
-**Active milestone:** This package is the 2026-07-19 functional MVP baseline. For the complete verified feature checklist and next-phase priorities, start with `document/MILESTONE-SUMMARY-2026-07-19.md`.
+**Active milestone:** This package is the 2026-07-19 functional MVP baseline. The canonical verified feature checklist and next-phase priorities are in `document/SYSTEM-SUMMARY.md`, under the milestone record section.
 
 ## Start
 
@@ -12,7 +12,7 @@ npm start
 
 Open http://localhost:3000.
 
-Starting a session automatically begins continuous browser voice conversation and asks for microphone access. Browser voice recognition keeps accumulating finalized speech segments until five seconds of silence, rather than submitting the first short segment. Interim hypotheses never appear in the answer box or reach the AI. If the browser revises a result, the newest finalized wording replaces the earlier hypothesis instead of being appended. Typed questions and answers remain available if permission is denied. To enable model-backed answers and optional OpenAI Realtime voice, copy `.env.example` to `.env`, put the API key after `OPENAI_API_KEY=`, and restart the server. The real key must stay in that local `.env`; it is not included in this package. `OPENAI_TEXT_MODEL` controls text understanding; `OPENAI_AUDIO_MODEL` controls the low-latency audio conversation model; `OPENAI_TRANSCRIBE_MODEL` controls live transcription; `OPENAI_SOURCE_DIGEST_TIMEOUT_MS` gives research-paper digestion a longer deadline than ordinary turns. The Python setting in `.env.example` is intentionally blank for distribution: set `DEEPCHAT2LEARN_PYTHON_BIN` to the host's own `python.exe` only when richer PDF extraction is needed, or leave it blank for the Node-only fallback.
+Starting a session automatically begins continuous browser voice conversation and asks for microphone access. On iPhone, tap Start voice conversation and allow both microphone and browser speech recognition if Safari prompts for them. The app primes browser recognition directly from that user gesture; it also recovers from mobile speech playback errors or missing completion events instead of remaining stuck at AI speaking. Browser voice recognition keeps accumulating finalized speech segments until five seconds of silence, rather than submitting the first short segment. Interim hypotheses never appear in the answer box or reach the AI. If the browser revises a result, the newest finalized wording replaces the earlier hypothesis instead of being appended. Typed questions and answers remain available if permission is denied. To enable model-backed answers and optional OpenAI Realtime voice, copy `.env.example` to `.env`, put the API key after `OPENAI_API_KEY=`, and restart the server. The real key must stay in that local `.env`; it is not included in this package. `OPENAI_TEXT_MODEL` controls text understanding; `OPENAI_AUDIO_MODEL` controls the low-latency audio conversation model; `OPENAI_TRANSCRIBE_MODEL` controls live transcription; `OPENAI_SOURCE_DIGEST_TIMEOUT_MS` gives research-paper digestion a longer deadline than ordinary turns. The Python setting in `.env.example` is intentionally blank for distribution: set `DEEPCHAT2LEARN_PYTHON_BIN` to the host's own `python.exe` only when richer PDF extraction is needed, or leave it blank for the Node-only fallback.
 
 ### Provider and source-processing prerequisites
 

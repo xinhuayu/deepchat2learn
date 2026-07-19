@@ -53,7 +53,10 @@
           </div>
           <button class="primary" type="submit">Start conversation <span aria-hidden="true">→</span></button>
           <p class="privacy-note">Voice audio is not recorded by default. You can enable local recording after starting a voice conversation, or answer by typing if your microphone is unavailable.</p>
-          <p id="browser-audio-note" class="privacy-note" role="status" aria-live="polite">Browser audio playback is available. Microphone permission will be requested when you start voice.</p>
+          <div class="voice-permission-setup">
+            <button id="prepareVoiceButton" class="secondary" type="button">Enable voice access</button>
+            <p id="browser-audio-note" class="privacy-note" role="status" aria-live="polite">Browser audio playback is available. On iPhone, tap Enable voice access and allow microphone and browser speech recognition if prompted.</p>
+          </div>
           <p id="serviceStatus" class="privacy-note status-text" role="status" aria-live="polite">Checking coaching services…</p>
         </form>
       </section>

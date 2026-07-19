@@ -279,7 +279,7 @@ The package was independently checked for conversation-first behavior, session i
 - Source answers combine a bounded paper-level digest, relevant retrieved evidence, the current learner turn, and at most three recent exchanges. The response must answer directly, paraphrase, label general knowledge, and advance the agenda. Retrieval now avoids reusing recently cited chunks when relevant alternatives exist, and semantic overlap checks request a new synthesis when a draft paraphrases a prior answer.
 - A changed transcript cannot replay a prior idempotency key. Safe response diagnostics record model status, fallback reason, agenda stage, retrieval counts/IDs, duration, and a short content hash without logging raw transcript, prompt, source text, or API keys.
 - Ordinary text tasks use the 120-second provider timeout; source digestion uses the configured 300-second timeout end to end, including the underlying model-coach request; Realtime initialization uses 120 seconds by default.
-- The current verification run passed syntax checks and 457 tests: 454 passed, 0 failed, and 3 optional Python-dependent PDF tests were skipped because the optional extractor was not available in the deterministic test environment.
+- The current verification run passed syntax checks and 462 tests: 459 passed, 0 failed, and 3 optional Python-dependent PDF tests were skipped because the optional extractor was not available in the deterministic test environment.
 
 ### Mobile Realtime voice hardening
 
@@ -287,6 +287,67 @@ The package was independently checked for conversation-first behavior, session i
 - The remote audio element is created during the user gesture, marked `autoplay` and `playsInline`, kept available for Safari playback, and explicitly started when the remote track arrives.
 - If Realtime negotiation fails, the client clears the failed transport and starts the browser voice fallback when supported instead of leaving the conversation in a broken Realtime state.
 - Realtime call failures update `/api/health` with safe status and provider diagnostics for hosted deployment troubleshooting.
+- Browser voice now primes speech recognition directly from the start-button gesture, clearly asks users to allow microphone and browser speech recognition, recovers from speech playback errors, and uses a conservative mobile playback watchdog if Safari fails to send a completion event.
+- The landing page includes an explicit **Enable voice access** preflight so users can grant browser permissions before creating a session.
 - The clean distribution copy contains only `.env.example`. A private local `.env` may be created for provider-backed testing, but never include the key, source papers, transcripts, SQLite files, or recordings in a distribution archive.
 
 The remaining material risks are provider latency, browser permission and WebRTC variability, scanned-PDF/OCR limitations, and the absence of production authentication and multi-user isolation. These are deployment constraints rather than failures of the current local conversation flow.
+
+## 14. Milestone record — 2026-07-19
+
+This is the canonical milestone and handoff record. It replaces the former standalone milestone summary so future work has one status source.
+
+### Handoff anchor
+
+- **Stage:** functional MVP / controlled demonstration.
+- **Primary goal:** smooth, academically meaningful voice conversation supported by supplied source materials.
+- **Marker:** active baseline; resume from this clean package and this document.
+- **Live demonstration:** [deepchat2learn.onrender.com](https://deepchat2learn.onrender.com/).
+
+### Verification snapshot
+
+- `npm run verify`: passed after the current audit.
+- Syntax checks: passed for all required JavaScript modules.
+- Deterministic tests: 462 total; 459 passed; 0 failed; 3 optional Python-dependent PDF tests skipped when the optional extractor is unavailable.
+- Package contents: 88 files; no private `.env`, API key, SQLite data, recordings, temporary files, dependencies, or raw source papers are distributed.
+- Voice and source behavior is verified by deterministic browser/API harnesses; provider-backed Realtime audio, browser permissions, Python PDF extraction, and hosted deployment remain environment-dependent.
+
+### Independent audit result
+
+- Fixed the client session-reset lifecycle so a pending browser speech-permission probe is explicitly cancelled on **New session** or **Delete data**, while ordinary recognition shutdown still completes a successful probe normally.
+- Added a regression test for reset-state completeness and pending-probe cancellation.
+- Removed the developer-specific path from the optional research-PDF integration test; set `DEEPCHAT2LEARN_RESEARCH_PDF` locally when that test should run against a supplied paper.
+- Rebuilt and scanned the distribution archive after the audit. The package contains no real secret patterns, machine-specific paths, private runtime data, or disallowed archive entries.
+
+### Feature-status checklist
+
+| Area | Verified in the package | Implemented but environment-dependent | Planned or MVP-limited |
+|---|---|---|---|
+| Server and sessions | Node server, security headers, health, capability tokens, 50/200 mode limits, budgets, rate limits, retention, expiry, deletion, idempotency, stale-turn protection | Provider-backed requests and hosted concurrency | Authentication, distributed multi-user isolation, production observability |
+| Conversation and learning | Progressive agenda, direct questions, relevance evaluation, concise feedback, response-linked follow-ups, move-on/close handling, fallback coach, skill routing | Provider answer quality and broader academic coverage | Learning analytics, concept maps, spaced review, instructor rubrics |
+| Voice and recording | Turn coordinator, silence submission, multi-segment accumulation, final-only transcripts, cleanup, AI-mic suppression, interruption, status messages, retryable turns, local recording lifecycle | Browser permissions, speech APIs, Realtime WebRTC, complete remote-audio recording, device/network behavior | Broader cross-browser E2E coverage and streaming playback |
+| Source processing | TXT/Markdown/DOCX/text-PDF extraction, metadata, tables/captions where extractable, chunking, retrieval, per-source and cross-source digest, fallback, citations, conflicts, deletion, limits | Python `pdfplumber`/PyMuPDF enhancement, external research provider | OCR and default visual figure interpretation |
+| Skills | `academic-conversation` for live turns; `academic-research` and `epi-research` for source digestion/review; explicit and automatic selection | Human review still needed for academic accuracy and pedagogy | Skill versioning and comparative evaluation |
+| UI and privacy | Voice preflight, processing/status announcements, session/mode-specific history, draft clearing, review/export, source panel, accessible controls, brand identity, local-only recording boundary | HTTPS, device permission behavior, hosted privacy configuration | Authentication, encrypted durable storage, user quotas |
+
+### Core handoff logic
+
+```text
+read this system summary
+  -> verify provider and deployment configuration
+  -> run hosted browser smoke test for voice and source discussion
+  -> record latency, permissions, interruptions, and fallback outcomes
+  -> fix one highest-impact failure
+  -> add a regression test
+  -> update this section and rebuild the clean package
+```
+
+The project remains conversation-first: preserve turn-taking, session boundaries, source grounding, concise responses, visible recovery, and academically meaningful progression before adding new agents or deeper analysis features.
+
+### Milestone risks to monitor
+
+1. **Voice transport:** browser permissions, echo cancellation, device differences, provider latency, and WebRTC behavior can differ from the deterministic harness.
+2. **Source comprehension:** extraction and retrieval errors can produce shallow or repetitive answers even when conversation mechanics are correct.
+3. **Context leakage:** stale drafts, interrupted turns, or mixed mode history can silently reduce answer quality if session boundaries regress.
+4. **Provider dependency:** timeouts, quotas, model changes, cold starts, and incompatible API keys can affect hosted behavior.
+5. **Production safety:** authentication, multi-user isolation, privacy controls, and operational monitoring are not production-complete.

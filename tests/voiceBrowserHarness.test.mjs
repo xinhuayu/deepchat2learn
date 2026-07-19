@@ -712,6 +712,7 @@ function createHarnessDom() {
   add('div', 'summaryView', { classNames: ['hidden'] });
   add('div', 'globalError', { classNames: ['hidden'] });
   add('div', 'serviceStatus');
+  add('div', 'browser-audio-note');
   add('div', 'voiceLiveRegion');
   add('div', 'voiceStateLabel');
   add('div', 'voiceState');
@@ -821,6 +822,7 @@ function createHarnessDom() {
     'voiceRetryButton',
     'repeatSpokenLine',
     'liveVoiceButton',
+    'prepareVoiceButton',
     'endSession',
     'newSession',
     'deleteData'
@@ -1484,6 +1486,65 @@ test('voice harness reports accessible microphone after permission check', async
   await harness.flush();
 
   assert.match(harness.document.querySelector('#microphoneStatus').textContent, /Microphone accessible/i);
+});
+
+test('landing voice setup requests permissions before a session starts', async () => {
+  const harness = await createHarness();
+  const recognition = harness.recognition();
+  const setupButton = harness.document.querySelector('#prepareVoiceButton');
+
+  setupButton.click();
+  assert.equal(recognition.startCount, 1, 'browser speech recognition should start from the landing-page gesture');
+  assert.match(harness.document.querySelector('#browser-audio-note').textContent, /allow microphone and browser speech recognition/i);
+
+  await harness.flush();
+  assert.equal(recognition.started, false, 'the permission probe should stop after the browser grants recognition');
+  assert.match(harness.document.querySelector('#browser-audio-note').textContent, /voice access is ready|microphone/i);
+});
+
+test('browser voice primes speech recognition from the start-button gesture', async () => {
+  const harness = await createHarness({ currentQuestion: 'What is the study design?' });
+  const recognition = harness.recognition();
+
+  harness.document.querySelector('#voiceConversationButton').click();
+
+  assert.equal(recognition.startCount, 1, 'speech recognition should be primed immediately from the user gesture');
+  assert.match(harness.document.querySelector('#voiceState').textContent, /browser speech recognition|microphone/i);
+
+  await harness.flush();
+  assert.equal(recognition.started, false, 'priming must stop before the opening question is spoken');
+  await harness.finishSpeech();
+  await harness.flush(750);
+  assert.equal(recognition.started, true, 'recognition should start automatically after the opening question');
+  assert.ok(recognition.startCount >= 2, 'the active listening cycle should follow the priming cycle');
+});
+
+test('browser voice recovers from speech playback errors by entering listening state', async () => {
+  const harness = await createHarness({ currentQuestion: 'What is the study design?' });
+  const recognition = harness.recognition();
+
+  harness.document.querySelector('#voiceConversationButton').click();
+  await harness.flush();
+  harness.speechSynthesis.active?.onerror?.({ error: 'not-allowed' });
+  await harness.flush(750);
+
+  assert.equal(recognition.started, true, 'a speech playback failure must not strand voice in AI speaking state');
+  assert.match(harness.document.querySelector('#voiceState').textContent, /listening|audio playback/i);
+});
+
+test('browser voice leaves AI-speaking state if speech playback never reports completion', async () => {
+  const harness = await createHarness({ currentQuestion: 'What is the study design?' });
+  const recognition = harness.recognition();
+
+  harness.document.querySelector('#voiceConversationButton').click();
+  await harness.flush();
+  assert.equal(recognition.started, false);
+
+  await harness.timers.flushDue(10_000);
+  await harness.flush();
+
+  assert.equal(recognition.started, true, 'the playback watchdog should advance to browser listening');
+  assert.match(harness.document.querySelector('#voiceState').textContent, /listening|audio playback/i);
 });
 
 test('service status reports a realtime outage while preserving browser voice fallback', async () => {
