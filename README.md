@@ -1,8 +1,21 @@
+<p align="center"><img src="public/brand-logo.png" alt="deepchat2learn logo" width="220"></p>
+
 # deepchat2learn - AI Coaching MVP
 
 deepchat2learn is a browser-based coaching app for practicing explanations and exploring supplied source material. The dependency-free local setup includes a deterministic coach and can optionally use a server-side text model, live AI voice, and SQLite persistence.
 
 Bundled skill profiles can shape how supplied materials are digested and discussed. The first profile is `epi-research`, a doctoral-level epidemiologic methods critique guide stored under `skills/epi-research/`. Skill guidance controls the review method and response structure; paper-specific claims and citations must still come from the uploaded material.
+
+## Project documentation
+
+- [System summary](document/SYSTEM-SUMMARY.md) — architecture, features, voice flow, source processing, skills, limitations, and the current handoff record.
+- [Distribution readiness](document/DISTRIBUTION-READINESS.md) — clean-package status, setup requirements, verification, privacy, and deployment cautions.
+
+## Live demonstration
+
+Try the hosted application at [https://deepchat2learn.onrender.com/](https://deepchat2learn.onrender.com/).
+
+The live demo runs on shared remote hosting, so response timing may vary. Provider cold starts, network conditions, source digestion, browser permissions, and model load can make answers or voice transitions slower than local tests. Ordinary interactive text requests have a 30-second deadline; source digestion uses a longer deadline. If a remote response is slow or unavailable, the app may show a fallback response or ask you to retry. Voice behavior also depends on the phone, browser permissions, microphone, and WebRTC support.
 
 ## Run locally
 
@@ -46,13 +59,13 @@ To use the optional model-backed text coaching and OpenAI Realtime voice, fill i
 
 Interactive text turns use a 30-second default deadline, balancing fuller remote-model response time with a responsive live conversation; the local academic fallback can continue the session if the deadline is reached. Source digestion keeps its separate longer deadline. You can adjust `OPENAI_TEXT_TIMEOUT_MS` in `.env` when the deployment has a faster or slower connection.
 
-The Windows test package also includes the configured Python path for richer research-PDF extraction:
+For richer research-PDF extraction, set the Python executable path for the current host:
 
 ```text
-DEEPCHAT2LEARN_PYTHON_BIN=C:\Users\yuxin\AppData\Local\Python\pythoncore-3.14-64\python.exe
+DEEPCHAT2LEARN_PYTHON_BIN=
 ```
 
-This path is machine-specific. On another host, replace it with that host's Python executable or leave it blank; Node-only PDF extraction remains available. The richer extractor requires `pdfplumber` in that Python environment.
+The path is intentionally blank in the distributable package. Set it only to a Python executable installed on the current host; Node-only PDF extraction remains available. The richer extractor requires `pdfplumber` in that Python environment.
 
 ```text
 OPENAI_API_KEY=your-server-side-key
@@ -68,7 +81,7 @@ OPENAI_TRANSCRIBE_MODEL=gpt-4o-mini-transcribe
 VOICE_AUTO_SUBMIT_DELAY_MS=5000
 VOICE_TRANSITION_DELAY_MS=750
 VOICE_REALTIME_SILENCE_MS=5000
-VOICE_REALTIME_WATCHDOG_MS=30000
+VOICE_REALTIME_WATCHDOG_MS=0
 VOICE_MAX_RECOGNITION_RETRIES=8
 VOICE_MAX_TRANSCRIPT_CHARACTERS=12000
 RATE_LIMIT_PER_MINUTE=120

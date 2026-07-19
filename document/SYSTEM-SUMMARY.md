@@ -210,7 +210,7 @@ Strict response schemas protect the provider boundary. Invalid provider response
 
 ### Request limits and timeouts
 
-The current test package defaults are 120 seconds for ordinary text tasks, 300 seconds for source digestion, and 120 seconds for Realtime initialization/call setup. These are server-side request deadlines; provider quotas, context windows, rate limits, and hosting-proxy limits may still impose shorter limits. Source uploads are limited to 10 files, 20 MB per file, 50 MB combined, 300 pages, and 150,000 extracted words. Practice and source sessions default to 50 and 200 rounds respectively.
+The current test package defaults are 30 seconds for ordinary interactive text tasks, 180 seconds for source digestion, and 60 seconds for Realtime initialization/call setup. These are server-side request deadlines; provider quotas, context windows, rate limits, and hosting-proxy limits may still impose shorter limits. Source uploads are limited to 10 files, 20 MB per file, 50 MB combined, 300 pages, and 150,000 extracted words. Practice and source sessions default to 50 and 200 rounds respectively.
 
 ## 9. Privacy and deployment model
 
@@ -278,8 +278,8 @@ The package was independently checked for conversation-first behavior, session i
 - Browser speech and configured Realtime audio share the same turn coordinator. AI audio disables microphone capture until playback ends; explicit interruption opens learner listening. Only finalized, cleaned transcripts are submitted.
 - Source answers combine a bounded paper-level digest, relevant retrieved evidence, the current learner turn, and at most three recent exchanges. The response must answer directly, paraphrase, label general knowledge, and advance the agenda. Retrieval now avoids reusing recently cited chunks when relevant alternatives exist, and semantic overlap checks request a new synthesis when a draft paraphrases a prior answer.
 - A changed transcript cannot replay a prior idempotency key. Safe response diagnostics record model status, fallback reason, agenda stage, retrieval counts/IDs, duration, and a short content hash without logging raw transcript, prompt, source text, or API keys.
-- Ordinary text tasks use the 120-second provider timeout; source digestion uses the configured 300-second timeout end to end, including the underlying model-coach request; Realtime initialization uses 120 seconds by default.
-- The current verification run passed syntax checks and 462 tests: 459 passed, 0 failed, and 3 optional Python-dependent PDF tests were skipped because the optional extractor was not available in the deterministic test environment.
+- Ordinary text tasks use the 30-second provider timeout; source digestion uses the configured 180-second timeout end to end, including the underlying model-coach request; Realtime initialization uses 60 seconds by default.
+- The current verification run passed syntax checks and 417 tests: 414 passed, 0 failed, and 3 optional Python-dependent PDF tests were skipped because the optional extractor was not available in the deterministic test environment.
 
 ### Mobile Realtime voice hardening
 
@@ -308,8 +308,8 @@ This is the canonical milestone and handoff record. It replaces the former stand
 
 - `npm run verify`: passed after the current audit.
 - Syntax checks: passed for all required JavaScript modules.
-- Deterministic tests: 462 total; 459 passed; 0 failed; 3 optional Python-dependent PDF tests skipped when the optional extractor is unavailable.
-- Package contents: 88 files; no private `.env`, API key, SQLite data, recordings, temporary files, dependencies, or raw source papers are distributed.
+- Deterministic tests: 417 total; 414 passed; 0 failed; 3 optional Python-dependent PDF tests skipped when the optional extractor is unavailable.
+- Package contents: 84 files; no private `.env`, API key, SQLite data, recordings, temporary files, dependencies, or raw source papers are distributed.
 - Voice and source behavior is verified by deterministic browser/API harnesses; provider-backed Realtime audio, browser permissions, Python PDF extraction, and hosted deployment remain environment-dependent.
 
 ### Independent audit result
@@ -318,6 +318,15 @@ This is the canonical milestone and handoff record. It replaces the former stand
 - Added a regression test for reset-state completeness and pending-probe cancellation.
 - Removed the developer-specific path from the optional research-PDF integration test; set `DEEPCHAT2LEARN_RESEARCH_PDF` locally when that test should run against a supplied paper.
 - Rebuilt and scanned the distribution archive after the audit. The package contains no real secret patterns, machine-specific paths, private runtime data, or disallowed archive entries.
+- Confirmed the distributable README begins with the centered brand logo and links to the system summary, distribution-readiness guide, development best practices, milestone pointer, and live demonstration.
+- Removed the developer-specific Python executable from `.env.example` and documentation examples; the package now leaves the optional host-specific path blank.
+
+### Mobile voice audit — 2026-07-19
+
+- Mobile permission requests are sequential, preventing microphone and browser-speech prompts from competing on Safari or other mobile browsers.
+- When Realtime is configured, mobile Start voice selects the capability-backed WebRTC transport whether or not browser SpeechRecognition is exposed; otherwise browser speech and typed fallback remain available.
+- The Realtime path reuses the permission stream, creates a mobile-safe `playsInline` remote-audio element, retries playback after a user gesture when autoplay is blocked, and accepts remote tracks with or without an attached stream list.
+- Automated mobile/browser harness coverage passes for browsers with SpeechRecognition, browsers without it, strict AI-to-human turn-taking, and single-stream microphone reuse. Physical devices remain necessary for final permission and autoplay QA.
 
 ### Feature-status checklist
 

@@ -5,9 +5,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { getAudioModel, getRequestConfig, getRetentionConfig, getSessionBudgetConfig, getSourceLimits, getVoiceConfig, loadDotEnv, maxQuestionsForSourceMode, shouldLoadDotEnv } from '../src/config.mjs';
 
-test('test configuration template includes the Windows PDF extractor path without a secret', async () => {
+test('configuration template keeps the optional PDF extractor path portable and secret-free', async () => {
   const template = await fs.readFile(path.join(process.cwd(), '.env.example'), 'utf8');
-  assert.ok(template.includes('DEEPCHAT2LEARN_PYTHON_BIN=C:\\Users\\yuxin\\AppData\\Local\\Python\\pythoncore-3.14-64\\python.exe'));
+  assert.match(template, /^DEEPCHAT2LEARN_PYTHON_BIN=\s*$/m);
+  assert.doesNotMatch(template, /C:\\Users\\[^\r\n]+\\python\.exe/i);
   assert.match(template, /^OPENAI_API_KEY=$/m);
   assert.match(template, /^SQLITE_PATH=$/m);
   assert.doesNotMatch(template, /sk-(?:proj-)?/i);
