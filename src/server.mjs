@@ -411,10 +411,16 @@ async function handleApi(req, res, url, runtime = {}) {
 
   if (method === 'POST' && url.pathname === '/api/realtime/call') {
     const session = store.requireAuthorized(payload.sessionId, token(req));
-    const call = modelGateway && typeof modelGateway.createRealtimeCall === 'function'
-      ? await modelGateway.createRealtimeCall({ session, sdp: payload.sdp, signal: null })
-      : await createRealtimeCall({ apiKey: process.env.OPENAI_API_KEY, sdp: payload.sdp, topic: session.topic, questionLimit: session.questionLimit });
-    return json(res, 200, call);
+    try {
+      const call = modelGateway && typeof modelGateway.createRealtimeCall === 'function'
+        ? await modelGateway.createRealtimeCall({ session, sdp: payload.sdp, signal: null })
+        : await createRealtimeCall({ apiKey: process.env.OPENAI_API_KEY, sdp: payload.sdp, topic: session.topic, questionLimit: session.questionLimit });
+      markRealtimeConnection(realtimeConnection);
+      return json(res, 200, call);
+    } catch (error) {
+      markRealtimeConnection(realtimeConnection, error);
+      throw error;
+    }
   }
 
   if (parts[1] === 'voice' && parts[2] === 'sessions') {

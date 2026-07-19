@@ -86,6 +86,11 @@ class FakeElement {
     this.files = [];
     this.textContent = '';
     this.innerHTML = '';
+    this.className = classNames.join(' ');
+    this.autoplay = false;
+    this.playsInline = false;
+    this.muted = false;
+    this.playCount = 0;
   }
 
   appendChild(child) {
@@ -140,6 +145,11 @@ class FakeElement {
 
   select() {
     this.selected = true;
+  }
+
+  play() {
+    this.playCount += 1;
+    return Promise.resolve();
   }
 
   querySelector(selector) {
@@ -316,6 +326,7 @@ class FakeRTCPeerConnection {
     harness.lastPeer = this;
     harness.peers.push(this);
     this.connectionState = 'new';
+    this.iceGatheringState = 'new';
   }
 
   addTrack(track) {
@@ -333,7 +344,9 @@ class FakeRTCPeerConnection {
   }
 
   async setLocalDescription(description) {
-    this.localDescription = description;
+    this.localDescription = { ...description, sdp: 'local-offer-with-candidates' };
+    this.iceGatheringState = 'complete';
+    this.onicegatheringstatechange?.();
   }
 
   async setRemoteDescription(description) {
@@ -403,7 +416,7 @@ function buildSessionPublic(id, currentQuestion = '') {
   };
 }
 
-function createFixtureServer(fixtures, { digestStatus = 'ready', denyMicrophone = false, currentQuestion = '', failVoiceTurns = 0, pendingVoiceTurn = null, healthConnection = undefined } = {}) {
+function createFixtureServer(fixtures, { digestStatus = 'ready', denyMicrophone = false, currentQuestion = '', failVoiceTurns = 0, pendingVoiceTurn = null, healthConnection = undefined, failRealtimeCall = false } = {}) {
   const sessionId = 'session-voice-1';
   const token = 'token-voice-1';
   const paper = materializeSource(fixtures.paper.source);
@@ -577,11 +590,13 @@ function createFixtureServer(fixtures, { digestStatus = 'ready', denyMicrophone 
     deleted: false,
     expireNextVoiceTurn: false,
     voiceTurnRequests: [],
+    realtimeCalls: [],
     interrupts: [],
     fetchLifecycle: [],
     typedQuestions: [],
     failVoiceTurnsRemaining: failVoiceTurns,
     pendingVoiceTurn,
+    failRealtimeCall,
     async handle(url, options = {}) {
       const parsed = new URL(url, 'http://localhost');
       const pathname = parsed.pathname;
@@ -671,6 +686,8 @@ function createFixtureServer(fixtures, { digestStatus = 'ready', denyMicrophone 
         return { ok: true, body: { deleted: true } };
       }
       if (pathname === '/api/realtime/call' && method === 'POST') {
+        this.realtimeCalls.push(body);
+        if (this.failRealtimeCall) return { ok: false, body: { error: { code: 'REALTIME_CALL_FAILED', message: 'Live AI voice could not connect. Continue by typing.' } } };
         return { ok: true, body: { sdp: 'fake-answer-sdp' } };
       }
       throw new Error(`Unhandled request ${method} ${pathname}`);
@@ -2098,6 +2115,33 @@ test('voice harness routes realtime transcripts and approved speech through dete
   assert.equal(harness.server.voiceTurnRequests.at(-1).transcript, 'What evidence supports it?');
   assert.equal(channel.sent.at(-1).type, 'response.create');
   assert.match(channel.sent.at(-1).response.instructions, /Students who used retrieval practice remembered more after one week/i);
+});
+
+test('realtime sends the fully gathered local SDP offer and prepares mobile-safe remote audio', async () => {
+  const harness = await createHarness();
+
+  harness.document.querySelector('#liveVoiceButton').click();
+  for (let attempt = 0; attempt < 6; attempt += 1) await harness.flush();
+
+  assert.equal(harness.server.realtimeCalls.at(-1).sdp, 'local-offer-with-candidates');
+  const remoteAudio = harness.document.body.children.find(child => child.tagName === 'AUDIO');
+  assert.ok(remoteAudio, 'realtime should attach a remote audio element');
+  assert.equal(remoteAudio.autoplay, true);
+  assert.equal(remoteAudio.playsInline, true);
+  assert.equal(remoteAudio.className, 'remote-audio');
+  assert.equal(remoteAudio.playCount > 0, true);
+});
+
+test('realtime connection failure falls back to browser voice input', async () => {
+  const harness = await createHarness({ failRealtimeCall: true });
+
+  harness.document.querySelector('#liveVoiceButton').click();
+  for (let attempt = 0; attempt < 8; attempt += 1) await harness.flush();
+
+  assert.equal(harness.voiceCoordinator.transport, 'browser-fallback');
+  assert.equal(harness.voiceCoordinator.active, true);
+  assert.equal(harness.voiceCoordinator.standaloneListening, false);
+  assert.match(harness.document.querySelector('#voiceState').textContent, /listening|speak/i);
 });
 
 test('realtime reconnect replaces only the failed transport and preserves both retry attempts', async () => {

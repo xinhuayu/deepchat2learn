@@ -1129,6 +1129,7 @@ const voiceCoordinator = {
     voiceCoordinator.transport = transport;
     voiceCoordinator.state = reconnecting ? voiceCoordinator.state : 'permission_pending';
     voiceCoordinator.shouldAutoResume = true;
+    if (transport === 'realtime' && !reconnecting) ensureRemoteAudioElement({ prime: true });
     clearVoiceSilenceTimer();
     clearVoiceAutoSubmitTimer();
     clearVoiceReconnectTimer();
@@ -2334,7 +2335,25 @@ function setLiveInputEnabled(enabled) {
   state.localStream?.getTracks().forEach(track => { track.enabled = Boolean(enabled); });
 }
 
-function stopLiveVoice({ intentional = true, preserveLocalStream = false } = {}) {
+function ensureRemoteAudioElement({ prime = false } = {}) {
+  if (!state.remoteAudio) {
+    state.remoteAudio = document.createElement('audio');
+    state.remoteAudio.autoplay = true;
+    state.remoteAudio.playsInline = true;
+    state.remoteAudio.muted = false;
+    state.remoteAudio.setAttribute('autoplay', '');
+    state.remoteAudio.setAttribute('playsinline', '');
+    state.remoteAudio.setAttribute('aria-hidden', 'true');
+    state.remoteAudio.className = 'remote-audio';
+    document.body.appendChild(state.remoteAudio);
+  }
+  if (prime && typeof state.remoteAudio.play === 'function') {
+    Promise.resolve(state.remoteAudio.play()).catch(() => null);
+  }
+  return state.remoteAudio;
+}
+
+function stopLiveVoice({ intentional = true, preserveLocalStream = false, preserveRemoteAudio = false } = {}) {
   const dataChannel = state.dataChannel;
   const peer = state.peer;
   const localStream = state.localStream;
@@ -2342,7 +2361,7 @@ function stopLiveVoice({ intentional = true, preserveLocalStream = false } = {})
   state.peer = null;
   if (!preserveLocalStream) state.localStream = null;
   state.dataChannel = null;
-  state.remoteAudio = null;
+  if (!preserveRemoteAudio) state.remoteAudio = null;
   if (intentional && dataChannel) {
     dataChannel.onopen = null;
     dataChannel.onmessage = null;
@@ -2355,7 +2374,7 @@ function stopLiveVoice({ intentional = true, preserveLocalStream = false } = {})
   dataChannel?.close();
   peer?.close();
   if (!preserveLocalStream) localStream?.getTracks().forEach(track => track.stop());
-  remoteAudio?.remove();
+  if (!preserveRemoteAudio) remoteAudio?.remove();
   state.voiceReviewPending = false;
   setLiveVoiceState(false);
 }
@@ -2372,6 +2391,26 @@ function handleRealtimeTransportMessage(message) {
   emitAndApplyVoiceEvent(message.type, message);
 }
 
+function waitForIceGathering(peer, timeoutMs = 8_000) {
+  if (!peer || !peer.iceGatheringState || peer.iceGatheringState === 'complete') return Promise.resolve();
+  return new Promise(resolve => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timer);
+      resolve();
+    };
+    const timer = window.setTimeout(finish, timeoutMs);
+    const previousHandler = peer.onicegatheringstatechange;
+    peer.onicegatheringstatechange = event => {
+      previousHandler?.(event);
+      if (peer.iceGatheringState === 'complete') finish();
+    };
+    if (peer.iceGatheringState === 'complete') finish();
+  });
+}
+
 async function openRealtimeVoiceTransport({ reconnecting = false } = {}) {
   if (!window.RTCPeerConnection || !navigator.mediaDevices?.getUserMedia) throw new Error('Live voice is not supported in this browser. Use Speak answer or type instead.');
   const preserveRecordingInput = Boolean(reconnecting && recordingInputBorrowed && isRecordingActive());
@@ -2380,7 +2419,7 @@ async function openRealtimeVoiceTransport({ reconnecting = false } = {}) {
     $('#liveVoiceButton').disabled = true;
     $('#liveVoiceButton').setAttribute('aria-busy', 'true');
     setVoiceAnnouncement(reconnecting ? 'Reconnecting live AI voice…' : 'Connecting live AI voice…');
-    stopLiveVoice({ preserveLocalStream: preserveRecordingInput });
+    stopLiveVoice({ preserveLocalStream: preserveRecordingInput, preserveRemoteAudio: true });
     try {
       state.localStream = reusableLocalStream || await navigator.mediaDevices.getUserMedia(microphoneConstraints);
       setMicrophoneStatus('available');
@@ -2391,8 +2430,11 @@ async function openRealtimeVoiceTransport({ reconnecting = false } = {}) {
     }
     state.peer = new RTCPeerConnection();
     state.peer.ontrack = event => {
-      if (!state.remoteAudio) { state.remoteAudio = document.createElement('audio'); state.remoteAudio.autoplay = true; state.remoteAudio.className = 'hidden'; document.body.appendChild(state.remoteAudio); }
-      state.remoteAudio.srcObject = event.streams[0];
+      const remoteAudio = ensureRemoteAudioElement();
+      remoteAudio.srcObject = event.streams[0];
+      Promise.resolve(remoteAudio.play?.()).catch(() => {
+        setVoiceAnnouncement('Live AI voice is connected. If you cannot hear it, tap the live voice button once to enable audio playback.');
+      });
       attachRecordingRemoteStream(event.streams[0]);
     };
     state.peer.onconnectionstatechange = () => {
@@ -2427,7 +2469,9 @@ async function openRealtimeVoiceTransport({ reconnecting = false } = {}) {
     state.dataChannel.onclose = () => emitAndApplyVoiceEvent('recoverable_error', { message: 'Live voice connection closed.' });
     const offer = await state.peer.createOffer();
     await state.peer.setLocalDescription(offer);
-    const call = await api('/api/realtime/call', { method: 'POST', body: JSON.stringify({ sessionId: state.session.id, sdp: offer.sdp }) });
+    await waitForIceGathering(state.peer);
+    const gatheredOffer = state.peer.localDescription?.sdp || offer.sdp;
+    const call = await api('/api/realtime/call', { method: 'POST', body: JSON.stringify({ sessionId: state.session.id, sdp: gatheredOffer }) });
     await state.peer.setRemoteDescription({ type: 'answer', sdp: call.sdp });
   } catch (error) {
     stopLiveVoice({ preserveLocalStream: preserveRecordingInput });
@@ -2443,8 +2487,21 @@ async function connectLiveVoice() {
   try {
     await voiceCoordinator.start({ transport: 'realtime' });
   } catch (error) {
-    stopLiveVoice();
-    setVoiceAnnouncement('Live voice is unavailable. Continue by typing or use browser voice input.');
+    voiceCoordinator.stop({ skipServer: true, preserveBrowserState: true });
+    if (state.recognition) {
+      try {
+        setVoiceAnnouncement('Live AI voice could not connect. Starting browser voice input instead.');
+        await voiceCoordinator.start({ transport: 'browser-fallback' });
+        notify('Live AI voice could not connect, so browser voice input is active instead.');
+        return;
+      } catch (fallbackError) {
+        voiceCoordinator.stop({ skipServer: true });
+        setVoiceConversationError(fallbackError?.message || error?.message || 'Voice communication could not start.');
+        notifyError(fallbackError);
+        return;
+      }
+    }
+    setVoiceConversationError(error?.message || 'Live voice is unavailable. Continue by typing.');
     notifyError(error);
   }
 }

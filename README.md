@@ -6,7 +6,11 @@
 
 deepchat2learn is a browser-based academic learning environment for deep voice conversations, practicing explanations, and exploring supplied source material. The dependency-free local setup includes a deterministic academic conversation coach and can optionally use a server-side text model, live AI voice, and SQLite persistence.
 
-For the architecture, conversation flows, feature map, current limitations, and distribution checklist, see [document/SYSTEM-SUMMARY.md](document/SYSTEM-SUMMARY.md) and [document/DISTRIBUTION-READINESS.md](document/DISTRIBUTION-READINESS.md).
+For the current milestone status, verified feature checklist, architecture, risks, and next priorities, see [document/MILESTONE-SUMMARY-2026-07-19.md](document/MILESTONE-SUMMARY-2026-07-19.md). The detailed architecture narrative remains in [document/SYSTEM-SUMMARY.md](document/SYSTEM-SUMMARY.md), and distribution cautions are in [document/DISTRIBUTION-READINESS.md](document/DISTRIBUTION-READINESS.md).
+
+## Current project milestone
+
+**Milestone 2026-07-19: active functional MVP baseline.** Use this clean package and the milestone summary as the starting point for future development. The next recommended phase is hosted browser smoke testing and privacy-safe observability, followed by the highest-impact fixes discovered there.
 
 Bundled skill profiles can shape how supplied materials are digested and discussed. The first profile is `epi-research`, a doctoral-level epidemiologic methods critique guide stored under `skills/epi-research/`. Skill guidance controls the review method and response structure; paper-specific claims and citations must still come from the uploaded material.
 

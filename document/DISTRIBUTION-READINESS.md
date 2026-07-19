@@ -2,11 +2,13 @@
 
 ## Package status
 
-The package is suitable for local testing and controlled demonstration after the checks below. It is not a production multi-user service yet. The current test copy contains a local `.env` for provider-backed testing; it is not a clean distributable until that file is removed.
+The package is suitable for local testing and controlled demonstration after the checks below. It is not a production multi-user service yet. The clean distribution copy contains only `.env.example`; create a private local `.env` from it only when provider-backed testing is needed.
+
+For the current milestone state, completed-feature checklist, verified test evidence, limitations, and next priorities, see [MILESTONE-SUMMARY-2026-07-19.md](MILESTONE-SUMMARY-2026-07-19.md).
 
 ## Clean-up completed
 
-- `.env.example` is the safe distributable configuration template. The local test copy may contain `.env` for provider-backed testing; remove it before packaging or sharing.
+- `.env.example` is the safe distributable configuration template. A private local `.env` may be created for provider-backed testing, but it must not be packaged or shared.
 - Removed empty live-test log artifacts.
 - Added `.gitignore` rules for `.env`, SQLite files, logs, data, and dependencies.
 - Preserved `.env.example` as the safe configuration template.

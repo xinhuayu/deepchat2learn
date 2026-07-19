@@ -279,7 +279,14 @@ The package was independently checked for conversation-first behavior, session i
 - Source answers combine a bounded paper-level digest, relevant retrieved evidence, the current learner turn, and at most three recent exchanges. The response must answer directly, paraphrase, label general knowledge, and advance the agenda. Retrieval now avoids reusing recently cited chunks when relevant alternatives exist, and semantic overlap checks request a new synthesis when a draft paraphrases a prior answer.
 - A changed transcript cannot replay a prior idempotency key. Safe response diagnostics record model status, fallback reason, agenda stage, retrieval counts/IDs, duration, and a short content hash without logging raw transcript, prompt, source text, or API keys.
 - Ordinary text tasks use the 120-second provider timeout; source digestion uses the configured 300-second timeout end to end, including the underlying model-coach request; Realtime initialization uses 120 seconds by default.
-- The current verification run passed syntax checks and 454 tests: 451 passed, 0 failed, and 3 optional Python-dependent PDF tests were skipped because the optional extractor was not available in the deterministic test environment.
-- The local test copy may contain `.env` for provider-backed testing. Remove it before distributing the package; never include the key, source papers, transcripts, SQLite files, or recordings in a distribution archive.
+- The current verification run passed syntax checks and 457 tests: 454 passed, 0 failed, and 3 optional Python-dependent PDF tests were skipped because the optional extractor was not available in the deterministic test environment.
+
+### Mobile Realtime voice hardening
+
+- WebRTC offers now wait for ICE gathering and send the completed local SDP, which is important on mobile networks that do not provide usable candidates immediately.
+- The remote audio element is created during the user gesture, marked `autoplay` and `playsInline`, kept available for Safari playback, and explicitly started when the remote track arrives.
+- If Realtime negotiation fails, the client clears the failed transport and starts the browser voice fallback when supported instead of leaving the conversation in a broken Realtime state.
+- Realtime call failures update `/api/health` with safe status and provider diagnostics for hosted deployment troubleshooting.
+- The clean distribution copy contains only `.env.example`. A private local `.env` may be created for provider-backed testing, but never include the key, source papers, transcripts, SQLite files, or recordings in a distribution archive.
 
 The remaining material risks are provider latency, browser permission and WebRTC variability, scanned-PDF/OCR limitations, and the absence of production authentication and multi-user isolation. These are deployment constraints rather than failures of the current local conversation flow.

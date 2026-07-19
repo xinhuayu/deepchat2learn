@@ -2,6 +2,8 @@
 
 This is a clean testable build of deepchat2learn. It requires Node.js 22.5 or newer and does not require Python.
 
+**Active milestone:** This package is the 2026-07-19 functional MVP baseline. For the complete verified feature checklist and next-phase priorities, start with `document/MILESTONE-SUMMARY-2026-07-19.md`.
+
 ## Start
 
 ```text
