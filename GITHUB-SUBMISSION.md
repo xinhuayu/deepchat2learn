@@ -8,7 +8,7 @@ This folder is the GitHub-ready source package for `deepchat2learn` `v0.1.0`, th
 
 - Application source, browser UI, bundled academic skills, tests, and current project documentation.
 - `.env.example` with blank secrets and a blank, portable Python executable setting.
-- Continuous interruption-safe voice turn-taking, explicit session-ending phrases, concise spoken learning guidance, highlighted voice-processing status, and regression tests.
+- Three-round academic topic discovery followed by a targeted topic digest/gist and scope-confirmation prompt; bounded practice/source context; interruption-safe voice turn-taking, explicit session-ending phrases, concise spoken learning guidance, highlighted voice-processing status, and regression tests.
 - `README.md`, `PROJECT-SUMMARY.md`, `RUN-THIS.md`, `CHANGELOG.md`, and this checklist for release and future-test handoff.
 - The versioned Markdown system summary, technical inventory, audit record, and editable diagrams.
 

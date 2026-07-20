@@ -68,9 +68,9 @@ This inventory records what is implemented, the operating contracts that protect
 ```text
 final learner contribution
   → classify: end | move on | direct question | ordinary response
-  → prepare mode-specific bounded context (practice discovery or refined scope + five exchanges, or source digest + three exchanges)
+  → prepare mode-specific bounded context (digest-free practice discovery or refined scope + five exchanges, or source digest + three exchanges)
   → request and validate structured response, or use safe fallback
-  → persist the completed turn and update agenda/budget/review
+  → persist the completed turn and update topic/digest/budget/review
   → deliver concise response plus one focused next question
 ```
 
@@ -83,21 +83,21 @@ final learner contribution
 ### Academic conversation framing contract
 
 - Live dialogue establishes the frame in this order whenever the material supports it: definition and orientation; scope and research aim; claim, hypothesis, or central question; setting, population, unit, and time horizon; design, comparison, and measures; findings and evidence; interpretation and uncertainty; then limitations, implications, or related extensions.
-- Practice uses the first three completed rounds for definition/aim, scope/boundaries, and claim/hypothesis/mechanism plus setting or example before creating the deferred topic digest. Source conversation uses the prepared digest and exact evidence to ask the same frame questions without resending the raw document.
+- Practice uses the first three completed rounds for definition/aim, scope/boundaries, and claim/hypothesis/mechanism plus setting or example before creating the deferred topic digest. Source-answer conversation uses the prepared digest and exact evidence to ask the same frame questions; generated source questions use the prepared digest and recent history without resending the raw document.
 - A missing or inapplicable element is marked as not reported, unclear, or not applicable. Later open questions must connect to the active topic, frame, digest, or source evidence; unrelated pivots are briefly reframed rather than accepted as the next agenda.
 
 ### Practice topic-scope contract
 
 - The first three practice rounds are a discovery phase. The `topic_digest` task runs once after the third completed round, receives exactly those three exchanges and the explicit `within the topic of ...` constraint, and uses a bounded 1,200-token structured response allowance.
 - The accepted scope fields are `definition`, `scope`, `gist`, `keyConcepts`, `boundaries`, and `anchorQuestion`. They are compacted again before being placed in later prompts.
-- The opening and first discovery questions receive only the stated topic and bounded history. After refinement and confirmation, next-question, evaluation, and general-answer requests receive the active scope. Vague questions are answered within that scope or receive a short clarification instead of causing an unrelated topic pivot.
+- The opening and first discovery questions receive only the stated topic and bounded history. After refinement, the system presents a scope-confirmation prompt; the next request already receives the active scope, and the learner’s response can confirm or correct it. Later next-question, evaluation, and general-answer requests continue to receive that scope. Vague questions are answered within it or receive a short clarification instead of causing an unrelated topic pivot.
 - The scope is persisted in the in-memory session and the SQLite `topic_digest_json` column. Source sessions leave this field empty because the prepared source digest/gist is their authoritative topic constraint.
 
 ### Voice contract
 
 - Browser recognition accumulates only final speech segments; interim hypotheses do not enter the answer box or server request.
 - A spoken answer is submitted after **five seconds** of silence. The same five-second silence setting is retained for Realtime turn detection.
-- AI speech highlights the real voice-processing status and pauses microphone capture to reduce echo. **Interrupt answer** stops playback and returns control to the learner.
+- AI speech highlights the real voice-processing status and pauses microphone capture to reduce echo. **Interrupt AI answer** stops playback and returns control to the learner.
 - Final transcripts are normalized before submission; a temporary failed turn remains retryable and can be edited or submitted as typed text.
 - The browser voice path, optional Realtime path, and typed fallback share the same server-side intent, source, budget, and persistence rules.
 
@@ -112,8 +112,8 @@ source upload
   → validate local citation/support before presenting source-grounded claims
 ```
 
-- Complete source text is used during ingestion/digestion. It is not resent in ordinary live source turns after a digest is ready.
-- Source prompts include the topic, prepared digest/gist, compact exact-evidence options, and at most the latest **three** exchanges.
+- Complete extracted source text and chunks are retained and used locally for ingestion, retrieval, validation, and fallback. The direct provider digest request currently uses a bounded text representation of up to 88,000 characters; an explicit consolidated digest uses bounded chunk batches. The original material is not resent in ordinary live source turns after a digest is ready.
+- Source-answer prompts include the topic, prepared digest/gist, compact exact-evidence options, and at most the latest **three** exchanges. Generated source-question prompts use the prepared digest and recent history, without raw source text.
 - Practice prompts include the topic and at most the latest **five** compact exchanges.
 - Raw source text and complete chunks remain local for retrieval, validation, and fallback. Explicit forced consolidation is a maintenance path, not the ordinary conversational path.
 - Source answers distinguish source-supported material, digest-level understanding, general academic context, unsupported material, and fallback-derived responses.
@@ -134,7 +134,8 @@ source upload
 | Realtime silence | 5,000 ms | Keeps voice turn detection aligned with browser voice. |
 | Transcript and answer limit | 13,200 characters each | Provides headroom for natural spoken explanations while keeping requests bounded. |
 | Question limit | 2,200 characters | Permits detailed academic questions without unbounded prompt growth. |
-| Session model budget | 132,000 tokens | Sets a session-level consumption ceiling across remote model turns. |
+| Session question caps | 50 practice / 200 source questions | Keeps the learning loop bounded; smaller limits remain selectable in session setup. |
+| Session model budget | 132,000 estimated tokens | Sets a session-level input-size estimate and consumption ceiling across remote model turns; it is not a provider billing meter. |
 | JSON request-body limit | 28 MB | Allows source-related payloads while preventing oversized API requests. |
 
 ### Source limits
@@ -171,7 +172,7 @@ An external provider test was run only after explicit authorization to use a pub
 | Ordinary digest refresh | Reused the prepared gist in about 6 ms without resending raw source text. |
 | Voice-source service path | A model-backed voice-answer request with a finalized transcript completed successfully. |
 | Follow-on source discussion | Three additional source turns completed in roughly 14–22 seconds each. |
-| Session model consumption | Approximately 42,000 of the configured 132,000-token budget. |
+| Session model consumption | The application’s input-size estimate reported approximately 42,000 of the configured 132,000-token budget; this is not provider billing usage. |
 | Voice finalization setting | Five-second silence policy remained enabled. |
 
 This validates the server-side voice-answer service path and remote source flow. It does not replace physical browser/device testing for microphones, permissions, autoplay, WebRTC network behaviour, or accessibility technology.
@@ -191,7 +192,7 @@ On 19 July 2026, an independent release audit also exercised a fresh no-key brow
 Coverage includes:
 
 - session creation, isolation, expiry, capability checks, idempotency, budgets, and summaries;
-- practice and source question/answer behaviour, close and move-on routing, and agenda progression;
+- practice and source question/answer behaviour, close and move-on routing, and academic-stage/topic progression;
 - source ingestion limits, digest state, direct-gist reuse, evidence citations, and fallback states;
 - model prompt boundaries, topic-scope generation and propagation, malformed responses, deadlines, and gateway fallback;
 - browser voice transitions, five-second silence submission, interruption, retry, typed fallback, Realtime routing, recording lifecycle, and processing-state visibility;

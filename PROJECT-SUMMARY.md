@@ -14,7 +14,9 @@
 4. Continue the conversation, ask for a new question, or say an explicit ending phrase such as "end the session," "finish the conversation," "wrap up," or "I am done."
 5. An ending phrase receives a short closing message, adds no extra question or answer turn, and transitions directly to the session summary.
 
-The conversation page visibly highlights the active voice-processing state. AI speech pauses microphone capture to reduce echo, and the explicit interrupt control lets the learner speak sooner. The former "Read the question aloud" button has been removed because session questions begin automatically in the continuous voice flow.
+The conversation page visibly highlights the active voice-processing state. AI speech pauses microphone capture to reduce echo, and the **Interrupt AI answer** control lets the learner speak sooner. The former "Read the question aloud" button has been removed because session questions begin automatically in the continuous voice flow.
+
+Practice sessions keep the first three completed rounds digest-free so the learner can establish definition and aim, scope and boundaries, then a claim, hypothesis, mechanism, setting, or example. After the third round, the system creates a targeted topic digest/gist from those three exchanges with the explicit constraint `within the topic of ...` and presents a short scope-confirmation prompt. The next response can confirm or correct the focus and is processed inside the refined scope; later practice requests carry that scope with up to five compact exchanges. Source-answer requests use the prepared source digest, compact evidence options, and three recent exchanges; generated source questions use the prepared digest and recent history.
 
 ## Critical known issue: mobile-browser voice conversation
 
@@ -26,15 +28,17 @@ The future investigation must reproduce the failure across mobile browser and de
 
 - AI-for-learning text requests have a 45-second default deadline and a deterministic local fallback, so a slow remote response does not turn into a failed learning turn.
 - Source digestion has its own 180-second default deadline and a 12,000-token configurable structured-response allowance (`OPENAI_SOURCE_DIGEST_MAX_OUTPUT_TOKENS`), reducing `max_output_tokens` incomplete-digest failures for larger papers.
-- Voice and answer limits include deliberate headroom: transcripts and answers default to 13,200 characters, questions to 2,200 characters, request bodies to 28 MB, and session model budget to 132,000 tokens.
+- Voice and answer limits include deliberate headroom: practice sessions allow up to 50 questions, source sessions up to 200, transcripts and answers default to 13,200 characters, questions to 2,200 characters, request bodies to 28 MB, and the application’s estimated session model budget is 132,000 tokens.
 - The five-second voice silence settings remain unchanged: `VOICE_AUTO_SUBMIT_DELAY_MS=5000` and `VOICE_REALTIME_SILENCE_MS=5000`.
 - The academic-conversation skill now enforces a staged frame—definition, scope, research aim, claim or hypothesis, setting, design, measures, evidence, interpretation, and related extensions—while marking unavailable fields as unknown rather than inventing them.
-- Practice sessions begin with a digest-free three-round academic-framing phase covering the learner’s definition and aim, scope and boundaries, then a central claim, hypothesis, mechanism, setting, or example. After the third completed round, the remote text path receives those first three exchanges plus the explicit constraint `within the topic of ...` and returns a targeted topic digest and one-sentence gist. The learner is asked to confirm the proposed focus before the later rounds rely on it.
-- After refinement, practice prompts retain the active topic, digest/gist, and up to five compact recent exchanges. A deterministic local scope is used if remote refinement fails, so the session still has a bounded topic constraint. After a source is digested, source prompts use only the topic, prepared digest/gist, compact exact-evidence options, and the three latest exchanges; raw documents remain local for evidence validation and fallbacks. Spoken learning guidance is constrained to one brief, concrete action before the next question.
+- Practice sessions begin with a digest-free three-round academic-framing phase covering the learner’s definition and aim, scope and boundaries, then a central claim, hypothesis, mechanism, setting, or example. After the third completed round, the remote text path receives those first three exchanges plus the explicit constraint `within the topic of ...` and returns a targeted topic digest and one-sentence gist. The learner receives a scope-confirmation prompt; the next response can confirm or correct the focus while later requests remain inside the refined scope.
+- After refinement, practice prompts retain the active topic, digest/gist, and up to five compact recent exchanges. A deterministic local scope is used if remote refinement fails, so the session still has a bounded topic constraint. After a source is digested, source-answer prompts use the topic, prepared digest/gist, compact exact-evidence options, and the three latest exchanges; generated source-question prompts use the prepared digest and recent history. Raw documents remain local for evidence validation and fallbacks. Spoken learning guidance is constrained to one brief, concrete action before the next question.
 
 ## Source materials and records
 
 The package accepts PDF, DOCX, TXT, Markdown, and pasted material. It preserves page-aware extraction where available, produces an evidence-validated digest, and labels general model context separately from source-specific claims. Source-grounded answers validate cited source excerpts before showing them.
+
+The complete extracted source and chunks remain local for retrieval, validation, and fallback. A direct provider digest request uses a bounded representation of up to 88,000 characters; an explicit consolidated digest can process bounded chunk batches. After preparation, ordinary source-answer requests do not resend the original paper or complete raw chunks.
 
 Session summaries retain recurring strengths, gaps, and source-use information. The visible review is reset for a new session and rendered newest-first; durable records retain timestamps for the same order after refresh. Optional SQLite persistence is disabled unless `SQLITE_PATH` is configured. Audio recording is separately opt-in, remains in browser memory until the user downloads it, and is never uploaded to the server or stored in session records.
 
@@ -50,7 +54,7 @@ npm run verify
 
 The GitHub-ready content contains no real credentials, recordings, databases, logs, source uploads, prior chat artifacts, or inherited Git history. A developer may keep a private ignored `.env` locally for provider testing; it must not be committed.
 
-An authorized provider validation with an 8-page, 6,655-word published PDF completed direct remote digestion in about 35 seconds. Digest reuse then took about 6 ms without resending raw source text, and a voice-source turn plus three further source turns completed successfully in about 14–22 seconds each. The session used about 42,000 of its 132,000-token budget.
+An authorized provider validation with an 8-page, 6,655-word published PDF completed direct remote digestion in about 35 seconds. Digest reuse then took about 6 ms without resending raw source text, and a voice-source turn plus three further source turns completed successfully in about 14–22 seconds each. The application’s estimated model-budget counter used about 42,000 of its 132,000-token ceiling; this is not provider billing usage.
 
 For setup and manual checks, see [RUN-THIS.md](RUN-THIS.md). For repository submission, see [GITHUB-SUBMISSION.md](GITHUB-SUBMISSION.md). For the component-level system view and diagrams, see [docs/SYSTEM-SUMMARY.md](docs/SYSTEM-SUMMARY.md).
 

@@ -27,7 +27,7 @@ flowchart TB
     Fresh --> Question
     Intent -->|Direct question or ordinary response| Context{"Session mode"}
 
-    Context -->|Practice| PracticeCtx["Topic + persisted scope digest + up to 5 compact exchanges; follow the academic frame and choose one brief next step"]
+    Context -->|Practice| PracticeCtx["Topic + discovery frame or persisted scope digest + up to 5 compact exchanges; follow the academic frame and choose one brief next step"]
     Context -->|Source| SourceCtx["Topic + digest/gist + compact exact evidence + latest 3 exchanges; raw paper remains local"]
     PracticeCtx --> Model["Request structured academic-conversation response"]
     SourceCtx --> Model
