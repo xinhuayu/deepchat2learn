@@ -8,6 +8,7 @@ All notable package milestones are recorded here. This project follows a control
 - Persists the normalized scope in both in-memory and SQLite sessions and supplies it to initial questions, follow-up generation, answer evaluation, and general spoken-question handling.
 - Uses a deterministic local scope when the remote scope request is unavailable or invalid, preserving the learning flow while keeping vague answers inside the declared topic.
 - Adds regression coverage for scope creation, persistence, gateway routing, prompt inclusion, and voice forwarding. The current suite reports 449 passing tests and 3 optional skips.
+- Records the critical unresolved mobile-browser voice-conversation issue. Desktop voice remains the frozen reference path; mobile voice is future work, and this documentation milestone introduces no application-code change.
 
 ## [0.1.0] - 2026-07-19
 
@@ -25,5 +26,5 @@ All notable package milestones are recorded here. This project follows a control
 
 ### Release posture
 
-- This is not a public-production 1.0 release. Production identity, observability, privacy/retention controls, and cross-device physical voice QA remain intentionally outside the freeze.
+- This is not a public-production 1.0 release. Production identity, observability, privacy/retention controls, and cross-device physical voice QA remain intentionally outside the freeze; continuous mobile-browser voice conversation is a critical unresolved issue.
 - Until the next planned milestone, only regression, security/privacy, documentation, and runtime-compatibility fixes should be accepted. See the [release baseline](docs/RELEASE-BASELINE-v0.1.0.md) for the maintenance gate.

@@ -2,6 +2,8 @@
 
 This folder is the GitHub-ready source package for `deepchat2learn` `v0.1.0`, the controlled-demonstration feature-freeze baseline. A private local `.env` may be used for testing, but it is ignored and must never be committed. Review the [release baseline](docs/RELEASE-BASELINE-v0.1.0.md) before expanding scope.
 
+> **Critical known issue:** Desktop voice conversation is working in this frozen package, but continuous voice conversation through mobile browsers is still not working reliably. Mobile voice is not release-ready and remains future work. Do not change the frozen application behavior as part of submission; use desktop voice or typed interaction until a separate mobile-voice milestone is opened.
+
 ## Included
 
 - Application source, browser UI, bundled academic skills, tests, and current project documentation.

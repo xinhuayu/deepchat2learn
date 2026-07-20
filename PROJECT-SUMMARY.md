@@ -16,6 +16,12 @@
 
 The conversation page visibly highlights the active voice-processing state. AI speech pauses microphone capture to reduce echo, and the explicit interrupt control lets the learner speak sooner. The former "Read the question aloud" button has been removed because session questions begin automatically in the continuous voice flow.
 
+## Critical known issue: mobile-browser voice conversation
+
+> **Critical release note:** The desktop voice path works in the frozen `v0.1.0` package, but continuous voice conversation through mobile browsers is still not working reliably. This blocks any claim of mobile voice readiness and is carried forward as the highest-priority future issue. No application code or manually edited `public/index.html` titles are changed as part of this freeze. Until the issue is solved and retested on target devices, use desktop voice or typed interaction.
+
+The future investigation must reproduce the failure across mobile browser and device combinations, then isolate microphone permission, audio autoplay, WebRTC/Realtime transport, browser speech fallback, and slow-network/reconnect behavior. A successful desktop run or typed model response does not close this mobile voice issue.
+
 ## Reliability and model behavior
 
 - AI-for-learning text requests have a 45-second default deadline and a deterministic local fallback, so a slow remote response does not turn into a failed learning turn.

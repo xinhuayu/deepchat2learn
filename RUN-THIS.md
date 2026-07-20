@@ -4,6 +4,8 @@ This guide accompanies the `v0.1.0` feature-freeze baseline. Read the [release b
 
 This is a clean testable build of deepchat2learn. It requires Node.js 22.5 or newer and does not require Python.
 
+> **Critical known issue — mobile voice:** The desktop voice conversation path is the verified reference for `v0.1.0`. Continuous voice conversation through mobile browsers is still not working reliably, so mobile microphone checks below are diagnostic follow-up work rather than a release-readiness claim. Use desktop voice or typed interaction for the current baseline.
+
 ## Start
 
 ```text
@@ -39,7 +41,7 @@ Add recording scenarios to the manual check list when you verify this build:
 
 1. Start a session and allow microphone access when prompted.
 2. Confirm the opening AI question is spoken before listening begins.
-3. On a mobile device, confirm the primary voice button and visibly highlighted live processing/status message appear immediately below the AI question without scrolling. The separate latest-spoken-line caption must not receive the processing highlight.
+3. On desktop, confirm the primary voice button and visibly highlighted live processing/status message appear immediately below the AI question without scrolling. On mobile, record whether the same state appears and whether the voice connection proceeds; the known mobile-browser issue may reproduce here. The separate latest-spoken-line caption must not receive the processing highlight.
 4. Speak for at least 10 seconds with one or two natural pauses shorter than five seconds.
 5. Pause for five seconds and confirm the transcript submits automatically.
 6. Confirm the spoken response includes one brief, concrete learning step and a focused follow-up, then listening resumes.
@@ -48,7 +50,7 @@ Add recording scenarios to the manual check list when you verify this build:
 9. Say "end the session," "finish the conversation," "wrap up," or "I am done." Confirm the app gives a brief closure, asks no next question, and moves to the summary page.
 10. Deny microphone permission once and confirm the typed controls remain usable.
 11. For Realtime testing, confirm microphone input is muted during AI audio, AI speech is not transcribed as user speech, the explicit Interrupt answer control opens the microphone, and disconnect/reconnect does not restart the academic session.
-12. On a mobile device, test both a browser with SpeechRecognition and one without it. When Realtime is configured, both should use the same live WebRTC path; when it is not configured, the app should use browser speech where available and provide typed fallback without blocking the session. If mobile audio autoplay is blocked, tap the page once after the connection message and confirm AI audio begins.
+12. For future mobile diagnosis, test both a mobile browser with SpeechRecognition and one without it. Record whether Realtime/WebRTC, browser speech, permissions, autoplay, and typed fallback behave as expected; do not treat a successful desktop run as evidence that this critical mobile issue is resolved. If mobile audio autoplay is blocked, tap the page once after the connection message and record whether AI audio begins.
 13. Start a fresh session after completing or leaving another. Confirm its review panel is empty until the new conversation produces entries, then confirm the newest item is at the top after each exchange.
 
 ## Source-material check

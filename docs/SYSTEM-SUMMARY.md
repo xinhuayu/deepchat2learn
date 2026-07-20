@@ -6,6 +6,8 @@
 
 **Release posture:** `v0.1.0` freezes the verified controlled-demonstration behaviour described here. It is not a public-production 1.0 release. The independent audit evidence, release gate, and allowed maintenance scope are recorded in [RELEASE-BASELINE-v0.1.0.md](RELEASE-BASELINE-v0.1.0.md).
 
+> **Critical known issue — mobile-browser voice conversation:** Desktop voice conversation is working in the frozen baseline, but continuous voice conversation through mobile browsers is still not working reliably. This blocks mobile voice readiness and is the highest-priority future issue. No application code or manually edited `public/index.html` titles are changed as part of this freeze; use desktop voice or typed interaction until a separate mobile-voice milestone is opened and validated.
+
 ## Deep conversations for better learning
 
 deepchat2learn is built on a simple proposition: learners understand more when they can talk their way through an idea. Explaining a claim, asking what a result means, connecting evidence to a method, and revising an uncertain answer are not side activities around learning; they are the learning activity.
@@ -100,7 +102,7 @@ The following are intentional design directions, not claims about the current MV
 | Streaming and perceived-latency improvements | Investigate safe streaming text or early sentence playback so the learner receives a responsive first signal while preserving turn validation, interruption safety, and source checking. |
 | Provider resilience and observability | Add retry/backoff policy, correlation IDs, safe latency/error metrics, and deployer-facing recovery guidance without recording raw prompts, transcripts, source text, or credentials in logs. |
 | Production identity and retention controls | Add authentication, role-aware authorization, user quotas, encryption where needed, configurable retention/deletion, and multi-user isolation before public or sensitive-data deployment. |
-| Accessibility and device quality assurance | Complete cross-browser and mobile testing for permission flows, autoplay, captions, keyboard use, screen readers, interruptions, and slow or variable networks. |
+| Accessibility and device quality assurance | Complete cross-browser and mobile testing for permission flows, autoplay, captions, keyboard use, screen readers, interruptions, and slow or variable networks. Continuous mobile-browser voice conversation is currently the critical unresolved issue in this area. |
 | Learning-effect evaluation | Evaluate whether the conversation actually improves explanation quality, source comprehension, retention, and transfer—not only uptime, latency, or provider success rates. |
 
 ## Important processes
@@ -236,19 +238,20 @@ With explicit authorization to use a published research paper, the current priva
 - A model-backed voice-source turn using a finalized transcript, followed by three source discussion turns, completed successfully in roughly **14–22 seconds per turn**.
 - The validated session used approximately **42,000 of 132,000** model-budget tokens.
 - The five-second silence setting remained in force. This validation exercised the server’s voice-answer path with a finalized transcript; physical microphone and device permission behaviour still require browser/device smoke testing.
+- Desktop voice is the current verified reference path. Continuous voice conversation through mobile browsers remains not working reliably and is explicitly carried forward as a critical unresolved issue.
 
 The deterministic verification suite also passed: **449 tests passed, 0 failed, and 3 optional environment-specific tests were skipped** (**452 tests total**). The suite covers syntax, conversation state, voice timing, processing-state presentation, ending behavior, records, source evidence, topic-scope prompt boundaries, persistence, and gateway fallback. Repository scans confirmed that the GitHub baseline is free of secrets and stale runtime artifacts.
 
 ## Current stage
 
-The project is at a **functional MVP / controlled demonstration** stage. The `v0.1.0` feature-freeze baseline is suitable for local use, controlled academic demonstrations, and GitHub submission. It has a coherent learning philosophy, a stable session model, bounded context and budgets, a tested remote source pathway, and a clean submission baseline. Its independent release evidence is maintained in [RELEASE-BASELINE-v0.1.0.md](RELEASE-BASELINE-v0.1.0.md).
+The project is at a **functional MVP / controlled demonstration** stage. The `v0.1.0` feature-freeze baseline is suitable for local use, controlled academic demonstrations, and GitHub submission on the verified desktop/typed paths. It has a coherent learning philosophy, a stable session model, bounded context and budgets, a tested remote source pathway, and a clean submission baseline. Continuous mobile-browser voice conversation is not yet working reliably, so the package makes no mobile voice readiness claim. Its independent release evidence is maintained in [RELEASE-BASELINE-v0.1.0.md](RELEASE-BASELINE-v0.1.0.md).
 
 It is not yet a public multi-user learning platform. Production use with sensitive or high-volume data still requires authentication, durable authorization boundaries, deployment monitoring, retention and deletion controls, privacy review, and device/browser testing appropriate to the intended users.
 
 ## Next milestones
 
 1. **Observe real learning conversations.** Test the quality of prompts, learning-guidance brevity, topic continuity, and summaries with representative students or researchers; use those observations to refine the learning experience rather than only the model prompts.
-2. **Complete browser and device voice QA.** Run end-to-end microphone, permission, interruption, autoplay, slow-network, and Realtime checks across target desktop and mobile browsers.
+2. **Resolve the critical mobile voice issue.** Reproduce and repair continuous voice conversation across target mobile devices and browsers, including microphone permission, interruption, autoplay, slow-network, browser speech, and Realtime/WebRTC checks; only then revise the frozen mobile-support claim.
 3. **Strengthen source transparency.** Make support status, citations, page references, and source-versus-general-knowledge distinctions clearer in the learner interface.
 4. **Extend source understanding carefully.** Add optional OCR and figure/table interpretation with explicit uncertainty labels; retain the current text-first evidence boundary rather than silently claiming visual comprehension.
 5. **Prepare for responsible deployment.** Add authentication, user-level quotas, encrypted durable storage where needed, operational metrics, and configurable retention before accepting sensitive or multi-user workloads.

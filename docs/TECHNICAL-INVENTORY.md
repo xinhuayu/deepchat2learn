@@ -8,6 +8,15 @@
 
 This inventory records what is implemented, the operating contracts that protect the conversation, the verification evidence for the current baseline, and the engineering work still required before public deployment. The companion [system summary](SYSTEM-SUMMARY.md) explains the learning purpose, pedagogy, and product direction; the [release baseline](RELEASE-BASELINE-v0.1.0.md) records the independent audit and change-control gate; this document records the technical state behind both.
 
+## Critical known issue: mobile-browser voice conversation
+
+| Field | Milestone record |
+|---|---|
+| Severity | **Critical for mobile voice support**; it does not invalidate the verified desktop/controlled-demonstration baseline. |
+| Observed status | Desktop voice conversation works, but continuous voice conversation through mobile browsers is still not working reliably. Typed interaction and desktop voice remain available workarounds. |
+| Frozen decision | No application code, runtime behavior, or manually edited `public/index.html` titles are changed in this freeze. `v0.1.0` makes no mobile-voice readiness claim. |
+| Required future investigation | Reproduce across target devices and browsers, then isolate microphone permission, autoplay, WebRTC/Realtime transport, browser speech fallback, and slow-network/reconnect behavior. Validate the fix with real-device tests before changing the frozen contract. |
+
 ## 1. Baseline and runtime
 
 | Item | Current state |
