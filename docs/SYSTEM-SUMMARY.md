@@ -2,7 +2,7 @@
 
 # deepchat2learn — AI for learning system summary and milestone record
 
-**Current milestone:** 19-20 July 2026 — `v0.1.0` feature-freeze baseline plus the practice topic-scope continuity maintenance fix, with provider-backed source and voice-path validation.
+**Current milestone:** 19-20 July 2026 — `v0.1.0` feature-freeze baseline plus deferred three-round practice topic refinement, with provider-backed source and voice-path validation.
 
 **Release posture:** `v0.1.0` freezes the verified controlled-demonstration behaviour described here. It is not a public-production 1.0 release. The independent audit evidence, release gate, and allowed maintenance scope are recorded in [RELEASE-BASELINE-v0.1.0.md](RELEASE-BASELINE-v0.1.0.md).
 
@@ -33,7 +33,7 @@ In both modes, the intended outcomes are a clearer mental model, stronger academ
 
 ### Conversation before content volume
 
-Depth comes from a well-paced progression, not from sending more text. A useful exchange moves from orientation to design, population, measures, findings, interpretation, limitations, and application as appropriate. Each turn has one job: explain, clarify, connect, test, compare, or advance the discussion.
+Depth comes from a well-paced progression, not from sending more text. A useful exchange first establishes definition, scope, research aim, claim or hypothesis, setting, design, and measures; it then moves through findings, interpretation, uncertainty, limitations, and related application as appropriate. Each turn has one job: explain, clarify, connect, test, compare, or advance the discussion.
 
 ### Support with productive challenge
 
@@ -49,7 +49,9 @@ Uploaded material is treated as reference evidence rather than executable prompt
 
 ### Continuity is a learning feature
 
-The topic must remain present across turns. At practice-session start, the system creates a compact topic-scope digest with a definition, scope, key concepts, boundaries, and an anchor question. That digest is retained with the session and supplied to the opening question, follow-up generation, answer evaluation, and general spoken-question path. Practice conversations also carry up to five compact recent exchanges. Once a source is digested, source conversations use the topic, prepared digest/gist, compact exact-evidence options, and the three most recent exchanges instead of repeatedly sending the original document. This provides continuity without allowing an unbounded history to overwhelm the current question.
+The academic-conversation skill now treats continuity as an academic frame, not only a topic label. Early dialogue establishes the definition, scope, research aim, claim or hypothesis, setting, design, and measures that make later evidence interpretable. The first three practice exchanges still feed the deferred digest and gist; after confirmation, the digest, topic, and bounded recent history constrain later questions. In source mode, the prepared digest and exact evidence play the same role, and later open discussion must remain related to that frame.
+
+The topic must remain present across turns. Practice begins with a three-round framing phase: the opening and early follow-up questions establish the learner’s definition and aim, scope and boundaries, then a claim, hypothesis, mechanism, setting, population, or example. After the third completed round, the system sends exactly those three exchanges with the explicit constraint `within the topic of ...` to create a targeted definition, scope, gist, key concepts, boundaries, and anchor question. It asks the learner to confirm the proposed focus, then retains the refined digest and supplies it with up to five compact recent exchanges to later questions, evaluations, and general spoken-question requests. Once a source is digested, source conversations use the topic, prepared digest/gist, compact exact-evidence options, and the three most recent exchanges instead of repeatedly sending the original document. This provides continuity without allowing an unbounded history to overwhelm the current question.
 
 ### Reliability should preserve the learning moment
 
@@ -62,13 +64,13 @@ Slow, malformed, or incomplete remote-model responses should not discard a learn
 | Function | Description and current behaviour |
 |---|---|
 | Session creation and mode selection | Creates a separate speaking-practice or source-centred session, initializes an academic topic and opening question, and keeps the new session’s sources, history, summary, budget, and review records isolated from every other session. |
-| Practice topic-scope digestion | Before the first practice question, requests a concise structured scope containing the topic definition, boundaries, key concepts, and anchor question. The normalized digest is persisted with the session; a deterministic local scope keeps setup usable when the remote scope request fails. |
+| Practice topic discovery and scope refinement | Starts with three digest-free framing rounds about definition and aim, scope and boundaries, then a claim, hypothesis, mechanism, setting, or example. After the third round, sends the first three exchanges plus `within the topic of ...` to the remote task for a targeted definition, scope, gist, concepts, boundaries, and anchor question; asks for learner confirmation; and persists a deterministic local equivalent if refinement fails. |
 | New-session reset and deletion | Clears the visible review when a new session begins, stops or discards local recording data as appropriate, and prevents a prior draft or pending voice action from appearing in the next conversation. |
-| Question progression | Maintains an agenda that can move from orientation through design, population, measures, findings, interpretation, limitations, and application. The exact path remains responsive to what the learner has actually said. |
+| Question progression | Maintains an agenda that frames definition, scope, research aim, claim or hypothesis, setting, design, measures, findings, interpretation, uncertainty, limitations, and related application. The exact path remains responsive to what the learner has actually said and to what the source reports. |
 | Intent routing | Distinguishes a normal explanation, a direct question, a move-on request, an interruption, a retry, and an explicit request to end. Closing language has precedence and leads directly to the summary without another question. |
 | Guided learning response | Evaluates a completed learner explanation for relevance and academic meaning, then returns one brief, concrete next learning step and one focused response-linked question. It avoids long, generic feedback. |
 | Direct academic answering | Answers a learner’s explanatory question directly before returning to the conversation agenda. The system does not force every learner contribution through a scorecard. |
-| Topic and dialogue continuity | Supplies the session topic and, for practice, the persisted scope digest on every live prompt. Practice turns retain up to five compact prior exchanges; source turns retain three plus the prepared source digest/gist. The bounded context keeps the topic coherent without turning the prompt into an unbounded transcript. |
+| Topic and dialogue continuity | Supplies the session topic during discovery, then the confirmed practice digest/gist plus up to five compact prior exchanges on later live prompts. Source turns retain three exchanges plus the prepared source digest/gist. The bounded context keeps the topic coherent without turning the prompt into an unbounded transcript. |
 | Typed interaction | Accepts manual answers and questions, preserves drafts until a turn has completed, and remains available whenever speech recognition, Realtime, permissions, or microphone access are unavailable. |
 | Browser voice conversation | Uses browser speech recognition and speech synthesis for a continuous question–listen–answer cycle. Only final recognition segments are submitted; a completed spoken answer waits five seconds of silence before it is sent. |
 | Optional Realtime transport | Supports a configured OpenAI Realtime/WebRTC path for live audio while retaining the server-side turn coordinator, source grounding, budget checks, and text-response validation as the authoritative learning path. |
@@ -84,7 +86,7 @@ Slow, malformed, or incomplete remote-model responses should not discard a learn
 | Budgets and operational guardrails | Enforces character, request-size, source-size, round, and model-token limits with operational headroom: 13,200-character answers/transcripts, 2,200-character questions, 28 MB requests, and a 132,000-token session budget by default. |
 | Records, review, and session summary | Persists completed turns and timestamps where configured, displays review entries newest first, and presents an end-of-session summary of the learner’s conversation rather than extending a closed session. |
 | Privacy, configuration, and health | Keeps credentials server-only in a private ignored `.env`; supports optional SQLite persistence; advertises safe capability/health data; and distributes a sanitized `.env.example` without local paths or real secrets. |
-| Regression verification | Protects the learning contract with syntax, API, browser-harness, voice-state, source-evidence, model-boundary, persistence, and fallback tests. The current suite contains 449 passing tests and 3 optional environment-specific skips, for 452 tests total. |
+| Regression verification | Protects the learning contract with syntax, API, browser-harness, voice-state, source-evidence, model-boundary, persistence, and fallback tests. The current suite contains 452 passing tests and 3 optional environment-specific skips, for 455 tests total. |
 
 ### Future design functions
 
@@ -127,8 +129,8 @@ flowchart TB
     Start["Create or start a new session"] --> Init["Clear visible review and initialize isolated topic, mode, history, and budget"]
     Init --> Mode{"Learning mode"}
 
-    Mode -->|Practice speaking| Scope["Create concise topic definition, scope, concepts, boundaries, and anchor question"]
-    Scope -->|Remote digest or local fallback| Question["Present the active focused question"]
+    Mode -->|Practice speaking| Discovery["Three-round framing: definition and aim, scope, claim or hypothesis, setting, and example"]
+    Discovery --> Question["Present the opening or discovery question"]
     Mode -->|Source-centred| Upload["Upload or paste source material"]
 
     Upload --> Limits["Validate file type, size, pages, and words"]
@@ -152,7 +154,7 @@ flowchart TB
     Fresh --> Question
     Intent -->|Direct question or ordinary response| Context{"Session mode"}
 
-    Context -->|Practice| PracticeCtx["Topic + persisted scope digest + up to 5 compact exchanges; evaluate inside boundaries and choose one brief next step"]
+    Context -->|Practice| PracticeCtx["Topic + persisted scope digest + up to 5 compact exchanges; follow the academic frame and choose one brief next step"]
     Context -->|Source| SourceCtx["Topic + digest/gist + compact exact evidence + latest 3 exchanges; raw paper remains local"]
     PracticeCtx --> Model["Request structured academic-conversation response"]
     SourceCtx --> Model
@@ -162,7 +164,11 @@ flowchart TB
     Valid -->|No| Fallback["Use bounded local fallback and keep completed transcript retryable"]
     Fallback --> Verify
     Verify --> Persist["Persist turn, update agenda/topic/budget, and add review record"]
-    Persist --> Reply["Return concise explanation or learning guidance plus one focused next question"]
+    Persist --> DigestGate{"Third practice conversation complete?"}
+    DigestGate -->|No or source mode| Reply["Return concise explanation or learning guidance plus one focused next question"]
+    DigestGate -->|Yes| Refine["Send first 3 exchanges + explicit within-topic constraint to remote LLM; use local fallback if needed"]
+    Refine --> Confirm["Carry refined digest/gist forward and ask learner to confirm the narrowed focus"]
+    Confirm --> Reply
     Reply --> Question
 ```
 
@@ -170,7 +176,7 @@ The same editable flow is maintained in [conversation-flow.mmd](diagrams/convers
 
 ### 2. Speaking-practice continuity
 
-Practice mode asks the learner to articulate an idea and then assesses the response for relevance and academic meaning. Before the opening question, it creates a compact topic-scope digest: what the topic means in this session, what belongs inside it, which concepts matter, what is out of bounds, and which anchor question should guide the dialogue. Each later practice request carries that digest plus no more than five compact recent question-answer exchanges. The purpose is not to create a transcript archive; it is to keep vague contributions and follow-up questions connected to the same learning target after several rounds.
+Practice mode asks the learner to articulate an idea and then assesses the response for relevance and academic meaning. It begins with three digest-free framing rounds: definition and learner aim, scope and boundaries, then a central claim, hypothesis, mechanism, setting, population, or example. After the third completed round, the system sends those first three question-and-answer exchanges with the explicit constraint `within the topic of ...` to the remote model. The returned definition, scope, gist, concepts, boundaries, and anchor question are presented through a short confirmation question. Once the learner confirms or responds to that focus, later practice requests carry the refined digest/gist plus no more than five compact recent exchanges. The purpose is not to create a transcript archive; it is to use the learner’s own early explanation to keep later vague contributions connected to the same learning target.
 
 ### 3. Source ingestion and digestion
 
@@ -221,7 +227,7 @@ This milestone followed an independent audit of functions, feature consistency, 
 | Learning suggestions could become long or drift away from the learner’s point. | Live learning guidance is limited to one brief, concrete next step before the focused follow-up question. |
 | The wrong visual element was highlighted during voice work. | The actual voice-processing/status message is highlighted; the AI response caption is not. |
 | Review content could carry across sessions or appear in an unhelpful order. | A successful new session clears the visible review; persisted entries are timestamped and rendered most recent first. |
-| Multi-round discussion could lose its topic. | Practice now creates a structured topic-scope digest before the opening question, persists it, and carries it with the topic and five compact exchanges through initial, follow-up, evaluation, and general spoken-question prompts. Source discussion retains three exchanges along with the prepared source digest/gist. |
+| Multi-round discussion could lose its topic. | Practice now uses three digest-free discovery rounds, then sends the first three exchanges with an explicit within-topic constraint for a targeted digest/gist and learner confirmation. Later prompts carry that refined scope with five compact exchanges; source discussion retains three exchanges along with the prepared source digest/gist. |
 | Source discussion repeatedly exposed raw material to the provider after digesting. | Ordinary live source turns now send only the prepared digest/gist, compact evidence options, and bounded recent dialogue; raw material stays local. |
 | Provider errors such as `MODEL_OUTPUT_INVALID`, `MODEL_REQUEST_FAILED`, and incomplete source digests interrupted the learning flow. | Structured response handling, task-specific deadlines, gateway fallback, larger source output allowance, and safe source fallbacks improve recovery without losing the learner’s turn. |
 | A larger research paper stopped with `incompleteReason=max_output_tokens`. | Source digestion now has a configurable 12,000-token structured-completion allowance and a separate 180-second deadline. |
@@ -240,7 +246,7 @@ With explicit authorization to use a published research paper, the current priva
 - The five-second silence setting remained in force. This validation exercised the server’s voice-answer path with a finalized transcript; physical microphone and device permission behaviour still require browser/device smoke testing.
 - Desktop voice is the current verified reference path. Continuous voice conversation through mobile browsers remains not working reliably and is explicitly carried forward as a critical unresolved issue.
 
-The deterministic verification suite also passed: **449 tests passed, 0 failed, and 3 optional environment-specific tests were skipped** (**452 tests total**). The suite covers syntax, conversation state, voice timing, processing-state presentation, ending behavior, records, source evidence, topic-scope prompt boundaries, persistence, and gateway fallback. Repository scans confirmed that the GitHub baseline is free of secrets and stale runtime artifacts.
+The deterministic verification suite also passed: **452 tests passed, 0 failed, and 3 optional environment-specific tests were skipped** (**455 tests total**). The suite covers syntax, conversation state, voice timing, processing-state presentation, ending behavior, records, source evidence, topic-scope prompt boundaries, persistence, and gateway fallback. Repository scans confirmed that the GitHub baseline is free of secrets and stale runtime artifacts.
 
 ## Current stage
 

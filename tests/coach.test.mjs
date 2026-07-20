@@ -86,7 +86,7 @@ test('fake coach applies the epidemiology skill to source questions', () => {
   assert.match(question, /target population|estimand|assumption/i);
 });
 
-test('fake coach progresses through orientation, design, population, measures, findings, interpretation, and limitations', () => {
+test('fake coach progresses through academic framing, evidence, interpretation, and related extensions', () => {
   const coach = createCoach();
   const histories = [
     [{ question: 'Q1', answer: 'A1' }],
@@ -99,7 +99,20 @@ test('fake coach progresses through orientation, design, population, measures, f
 
   const practiceQuestions = histories.map(conversationHistory => coach.nextQuestion({
     topic: 'learning science',
-    conversationHistory
+    conversationHistory,
+    conversationTurnCount: conversationHistory.length,
+    ...(conversationHistory.length >= 3 ? {
+      topicDigest: {
+        topic: 'learning science',
+        definition: 'How people learn.',
+        scope: 'Stay with learning mechanisms and examples.',
+        gist: 'Within learning science, focus on mechanisms and examples.',
+        keyConcepts: ['learning'],
+        boundaries: ['Do not drift.'],
+        anchorQuestion: 'What mechanism matters?'
+      }
+    } : {}),
+    ...(conversationHistory.length === 3 ? { topicDigestReady: true } : {})
   }));
   const sourceQuestions = histories.map(conversationHistory => coach.sourceQuestion({
     topic: 'learning science',
@@ -107,18 +120,23 @@ test('fake coach progresses through orientation, design, population, measures, f
     conversationHistory
   }));
 
-  assert.match(practiceQuestions[0], /main research question|problem/i);
-  assert.match(practiceQuestions[1], /design|approach/i);
-  assert.match(practiceQuestions[2], /population|participants|sample/i);
+  assert.match(practiceQuestions[0], /inside|scope|leave out/i);
+  assert.match(practiceQuestions[1], /specific|mechanism|example/i);
+  assert.match(practiceQuestions[2], /focus|fit|explore/i);
   assert.match(practiceQuestions[3], /concept|variable|measure/i);
   assert.match(practiceQuestions[4], /result|evidence/i);
   assert.match(practiceQuestions[5], /interpret/i);
   assert.match(coach.nextQuestion({ topic: 'learning science', conversationHistory: [...histories[5], { question: 'Q7', answer: 'A7' }] }), /limitation|implication/i);
 
-  assert.match(sourceQuestions[0], /mainly about|paper mainly about/i);
-  assert.match(sourceQuestions[1], /design|approach/i);
-  assert.match(sourceQuestions[2], /population|participants|sample/i);
-  assert.match(sourceQuestions[3], /concept|measure/i);
+  assert.match(coach.sourceQuestion({
+    topic: 'learning science',
+    sources: [{ id: 'paper-1', name: 'paper.txt', text: 'The study reports a longitudinal cohort design with test-score outcomes.' }],
+    conversationHistory: []
+  }), /mainly about|central aim/i);
+  assert.match(sourceQuestions[0], /scope|inside|outside/i);
+  assert.match(sourceQuestions[1], /claim|hypothesis|question/i);
+  assert.match(sourceQuestions[2], /setting|population|time/i);
+  assert.match(sourceQuestions[3], /design|comparison|measure/i);
   assert.match(sourceQuestions[4], /evidence|result/i);
   assert.match(sourceQuestions[5], /interpret/i);
   assert.match(coach.sourceQuestion({

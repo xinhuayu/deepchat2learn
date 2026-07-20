@@ -14,7 +14,9 @@ The release does **not** claim readiness for sensitive, high-volume, or public m
 
 ### Follow-up regression maintenance — 20 July 2026
 
-The feature-freeze contract remains unchanged, but the practice continuity path received a regression fix after the initial baseline audit. Practice sessions now create a concise structured topic-scope digest before the opening question, persist it in the session, and carry it through initial-question generation, follow-up questions, answer evaluation, and general spoken-question handling. A deterministic local scope is used when the remote scope request is unavailable or invalid. This directly addresses multi-round drift caused by vague learner contributions without changing the five-second voice-finalization boundary, source-conversation context contract, or user-facing session controls.
+The academic-conversation skill now supplies a staged frame for live dialogue: definition and scope, research aim, claim or hypothesis, setting, design, measures, evidence, interpretation, and then related extensions. The provider prompt and deterministic fallback use the same progression, and missing source fields are treated as unknown or not reported rather than invented.
+
+The release remains versioned `v0.1.0`, with this behavior recorded as follow-up maintenance. Practice sessions now begin with three digest-free framing rounds covering definition and aim, scope and boundaries, then a claim, hypothesis, mechanism, setting, or example. After the third completed round, the first three exchanges and the explicit constraint `within the topic of ...` are sent to the topic-digest task for a targeted definition, scope, gist, concepts, boundaries, and anchor question. The learner receives a short confirmation question, and later practice prompts carry the refined digest/gist with up to five compact exchanges. A deterministic local scope is used when remote refinement is unavailable or invalid. This addresses multi-round drift caused by vague learner contributions without changing the five-second voice-finalization boundary, source-conversation context contract, or user-facing voice controls.
 
 ### Critical known issue — mobile-browser voice conversation
 
@@ -23,7 +25,7 @@ Desktop voice conversation and the automated/server voice paths work for the fro
 ## Frozen learner contract
 
 - Practice and source sessions start with a focused question and preserve session isolation, budgets, retention choice, and review records.
-- Every live prompt carries the topic. Practice also carries its persisted scope digest and up to five compact recent exchanges; source conversation uses the prepared digest/gist, bounded evidence context, and three recent exchanges rather than repeatedly sending the original material.
+- Every live prompt carries the topic. Practice begins with three bounded discovery rounds; after refinement and confirmation, it carries the persisted scope digest/gist and up to five compact recent exchanges. Source conversation uses the prepared digest/gist, bounded evidence context, and three recent exchanges rather than repeatedly sending the original material.
 - A normal completed answer receives concise, response-linked learning feedback and one focused next question. Direct questions and move-on requests are routed separately.
 - Phrases such as “end the session,” “finish the conversation,” “wrap up,” and “I am done” receive a short closure and proceed directly to the summary without another question.
 - Voice processing states are visibly highlighted; AI speech pauses microphone capture, interruption is available, typed interaction remains usable, and five seconds of final silence remains the submission boundary. The desktop/controlled-browser path is the verified reference; mobile-browser voice remains the critical unresolved issue above.
@@ -34,7 +36,7 @@ Desktop voice conversation and the automated/server voice paths work for the fro
 
 | Audit area | Evidence recorded for this baseline |
 |---|---|
-| Syntax and regression suite | The follow-up `npm run verify` completed with **452 tests total: 449 passed, 0 failed, 3 optional environment-specific skips**. |
+| Syntax and regression suite | The follow-up `npm run verify` completed with **455 tests total: 452 passed, 0 failed, 3 optional environment-specific skips**. |
 | Static package hygiene | No distributed credential pattern, local-machine path, database, recording, log, cache, uploaded source, `node_modules`, or inherited Git history was found in the submission content. `.env.example` remained as the only portable configuration template. |
 | Configuration contracts | Environment-template parity and local Markdown-link checks passed. Documented timing, token, character, source, and request-size limits matched the configuration surface. |
 | Local browser flow | In an isolated no-key session, the landing page created a practice session, showed the active voice-processing state, accepted a typed answer, produced concise feedback and a next question, retained the turn in review history, and ended at the session summary. Browser-console warnings and errors were absent. |

@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { HttpError } from './store.mjs';
 import { buildSourceConversationDigest, retrieveSourceChunks } from './sourceKnowledge.mjs';
 import { validateAnswerEvidence } from './evidence.mjs';
+import { buildLocalTopicDigest, normalizeTopicDigest, TOPIC_DIGEST_CONVERSATION_THRESHOLD } from './topicScope.mjs';
 
 const INPUT_MODES = new Set(['voice', 'typed']);
 const KNOWLEDGE_LAYERS = new Set(['source', 'llm', 'external']);
@@ -259,7 +260,7 @@ export async function answerVoiceTurn({
 
     const result = sourceTurn
       ? await buildSourceAnswerResult({ turn, session, store, coach, retrievedChunks, researchContext, skillProfile: getConversationSkill(skillRegistry, session) })
-      : await buildGeneralAnswerResult({ turn, session, coach, researchContext });
+      : await buildGeneralAnswerResult({ turn, session, coach, researchContext, skillProfile: getConversationSkill(skillRegistry, session) });
 
     return complete(persistVoiceTurnResult({ session, store, idempotencyKey: normalizedIdempotencyKey, result }));
   } catch (error) {
@@ -347,7 +348,9 @@ async function buildSourceAnswerResult({ turn, session, store, coach, retrievedC
           topic: session.topic,
           currentQuestion: session.currentQuestion || null,
           topicDigest: session.topicDigest || null,
-          conversationHistory: buildConversationHistory(session, { limit: 5 })
+          conversationTurnCount: countConversationTurns(session),
+          conversationHistory: buildConversationHistory(session, { limit: 5 }),
+          skillProfile
         }
       })
       : {
@@ -481,14 +484,120 @@ async function buildNewQuestionResult({ turn, session, coach, skillRegistry }) {
   });
 }
 
-async function buildGeneralAnswerResult({ turn, session, coach, researchContext }) {
+export async function refinePracticeTopicDigestAfterTurn({
+  session,
+  coach,
+  skillRegistry,
+  previousQuestion = '',
+  result = null,
+  allowNextQuestion = true
+} = {}) {
+  if (!session || session.sourceMode === 'source' || session.topicDigest) {
+    return { created: false, topicDigest: session?.topicDigest || null, nextQuestion: result?.followUp || result?.feedback?.nextQuestion || null };
+  }
+
+  const conversationTurnCount = countConversationTurns(session);
+  if (conversationTurnCount < TOPIC_DIGEST_CONVERSATION_THRESHOLD) {
+    return { created: false, topicDigest: null, nextQuestion: result?.followUp || result?.feedback?.nextQuestion || null };
+  }
+
+  const discoveryHistory = buildConversationHistory(session, { limit: 12 })
+    .filter(turn => !['control', 'new_question', 'end_session'].includes(turn.role))
+    .slice(0, TOPIC_DIGEST_CONVERSATION_THRESHOLD);
+  if (discoveryHistory.length < TOPIC_DIGEST_CONVERSATION_THRESHOLD) {
+    return { created: false, topicDigest: null, nextQuestion: result?.followUp || result?.feedback?.nextQuestion || null };
+  }
+
+  const explicitConstraint = `within the topic of ${session.topic}`;
+  const digestInput = {
+    topic: session.topic,
+    goal: session.goal,
+    difficulty: session.difficulty,
+    feedbackStyle: session.feedbackStyle,
+    sourceMode: session.sourceMode,
+    conversationTurnCount,
+    conversationHistory: discoveryHistory,
+    explicitConstraint,
+    skillProfile: getConversationSkill(skillRegistry, session)
+  };
+
+  let digest = null;
+  try {
+    if (typeof coach?.topicDigest === 'function') digest = await coach.topicDigest(digestInput);
+  } catch {
+    // The deterministic scope keeps the conversation usable when refinement fails.
+  }
+  session.topicDigest = normalizeTopicDigest(digest, session.topic, { mode: digest?.mode || 'model' })
+    || buildLocalTopicDigest(digestInput);
+
+  const confirmationQuestion = `Does this proposed focus fit what you want to explore within the topic of "${session.topic}"?`;
+  let nextQuestion = confirmationQuestion;
+  if (allowNextQuestion) {
+    try {
+      if (typeof coach?.nextQuestion === 'function') {
+        const candidate = await coach.nextQuestion({
+          topic: session.topic,
+          previousQuestion: previousQuestion || session.currentQuestion,
+          conversationHistory: buildConversationHistory(session, { limit: 5 }),
+          conversationTurnCount,
+          sources: session.sources || [],
+          sourceDigest: session.sourceDigest || null,
+          topicDigest: session.topicDigest,
+          topicDigestReady: true,
+          explicitConstraint,
+          skillProfile: getConversationSkill(skillRegistry, session)
+        });
+        if (isTopicConfirmationQuestion(candidate)) nextQuestion = normalizeOptionalString(candidate);
+      }
+    } catch {
+      // Use the local confirmation question if the follow-up model call is unavailable.
+    }
+    applyRefinedFollowUp(result, nextQuestion);
+  }
+
+  return { created: true, topicDigest: session.topicDigest, nextQuestion: nextQuestion || null };
+}
+
+function isTopicConfirmationQuestion(value) {
+  const question = normalizeOptionalString(value);
+  if (!question || !question.includes('?')) return false;
+  const hasScopeLanguage = /\b(?:focus|scope|topic|definition|boundary|direction|meaning|understanding)\b/i.test(question);
+  const hasConfirmationLanguage = /\b(?:fit|match|align|want|prefer|right|correct|agree|confirm|sound|explore|continue)\b/i.test(question);
+  return hasScopeLanguage && hasConfirmationLanguage;
+}
+
+function applyRefinedFollowUp(result, nextQuestion) {
+  if (!result || !nextQuestion) return;
+  const previousFollowUp = normalizeOptionalString(result.followUp);
+  result.followUp = nextQuestion;
+  if (result.feedback) result.feedback.nextQuestion = nextQuestion;
+  if (result.turn?.feedback) result.turn.feedback.nextQuestion = nextQuestion;
+
+  const spoken = normalizeOptionalString(result.answerSpeechText);
+  if (!spoken) {
+    result.answerSpeechText = limitVoiceText(`Next question: ${nextQuestion}`);
+  } else {
+    const previousIndex = previousFollowUp ? spoken.toLowerCase().indexOf(previousFollowUp.toLowerCase()) : -1;
+    const base = previousIndex >= 0
+      ? spoken.slice(0, previousIndex).trim()
+      : spoken.replace(/\s+(?:next question:|would you like[^?]*\?)\s*[\s\S]*$/i, '').trim();
+    result.answerSpeechText = limitVoiceText(`${base || spoken} Next question: ${nextQuestion}`);
+  }
+  if (result.turn) {
+    result.turn.followUp = nextQuestion;
+    result.turn.answerSpeechText = result.answerSpeechText;
+  }
+}
+
+async function buildGeneralAnswerResult({ turn, session, coach, researchContext, skillProfile = null }) {
   const raw = typeof coach?.generalAnswer === 'function'
     ? await coach.generalAnswer(turn.transcript, {
       context: {
         topic: session.topic,
         currentQuestion: session.currentQuestion || null,
         topicDigest: session.topicDigest || null,
-        conversationHistory: buildConversationHistory(session, { limit: 5 })
+        conversationHistory: buildConversationHistory(session, { limit: 5 }),
+        skillProfile
       }
     })
     : {
@@ -548,6 +657,7 @@ async function buildCoachingResult({ turn, session, coach, skillProfile }) {
     question: session.currentQuestion,
     answer: turn.transcript,
     turnIndex: Array.isArray(session.turns) ? session.turns.length : 0,
+    conversationTurnCount: countConversationTurns(session),
     feedbackStyle: session.feedbackStyle,
     sources: session.sources || [],
     topicDigest: session.topicDigest || null,

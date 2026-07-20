@@ -4,10 +4,12 @@ All notable package milestones are recorded here. This project follows a control
 
 ## [Unreleased maintenance] - 2026-07-20
 
-- Adds a practice-session topic-scope digest before the opening question. The digest keeps a concise definition, scope, key concepts, boundaries, and anchor question available throughout the session.
-- Persists the normalized scope in both in-memory and SQLite sessions and supplies it to initial questions, follow-up generation, answer evaluation, and general spoken-question handling.
-- Uses a deterministic local scope when the remote scope request is unavailable or invalid, preserving the learning flow while keeping vague answers inside the declared topic.
-- Adds regression coverage for scope creation, persistence, gateway routing, prompt inclusion, and voice forwarding. The current suite reports 449 passing tests and 3 optional skips.
+- Revises practice topic continuity so the session begins without a precomputed digest. The first three completed rounds establish the learner’s definition and aim, scope and boundaries, then a central claim, hypothesis, mechanism, setting, or example.
+- Reframes the bundled academic-conversation skill around an explicit academic frame: definition, scope, research aim, claim or hypothesis, setting, design, measures, evidence, interpretation, and only then related open extensions. Missing fields must be marked unknown or not reported rather than invented.
+- After the third practice round, sends the first three exchanges with the explicit `within the topic of ...` constraint to the remote text path for a targeted topic digest and one-sentence gist, then asks the learner to confirm the proposed focus.
+- Persists the refined scope in both in-memory and SQLite sessions and supplies it, together with up to five compact recent exchanges, to later practice questions, evaluation, and general spoken-question handling.
+- Uses a deterministic local scope when remote refinement is unavailable or invalid, preserving the learning flow while keeping vague answers inside the declared topic.
+- Adds regression coverage for deferred scope creation, first-three-exchange bounds, prompt inclusion, confirmation routing, and voice forwarding.
 - Records the critical unresolved mobile-browser voice-conversation issue. Desktop voice remains the frozen reference path; mobile voice is future work, and this documentation milestone introduces no application-code change.
 
 ## [0.1.0] - 2026-07-19

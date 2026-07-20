@@ -701,8 +701,8 @@ test('brand image is used as a compact project icon', async () => {
 test('landing page uses the AI-for-learning conversation copy', async () => {
   const html = await fs.readFile(new URL('../public/index.html', import.meta.url), 'utf8');
   const app = await fs.readFile(new URL('../public/app.js', import.meta.url), 'utf8');
-  assert.match(html, /AI for learning through deep conversation/);
-  assert.match(html, /Deep conversations for better learning/);
+  assert.match(html, /AI for learning through conversation/);
+  assert.match(html, /Deep Conversations for Better Learning/i);
   assert.match(html, /What would you like to discuss today\?[\s\S]*?\(required\)/i);
   assert.doesNotMatch(html, /Choose a topic, answer one question at a time/);
   assert.match(html, /Adjust conversation options/);

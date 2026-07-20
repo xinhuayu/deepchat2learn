@@ -1,9 +1,8 @@
 import { buildSessionSummary, countCompletedTurns, deriveSourceDigestStatus, ensureSourceContract, HttpError, sourceReadyForGroundedAnswers } from './store.mjs';
-import { answerVoiceTurn as defaultAnswerTurn, buildConversationHistory, isSessionEndRequest, SESSION_CLOSING_MESSAGE } from './voiceSession.mjs';
+import { answerVoiceTurn as defaultAnswerTurn, buildConversationHistory, isSessionEndRequest, refinePracticeTopicDigestAfterTurn, SESSION_CLOSING_MESSAGE } from './voiceSession.mjs';
 import { resolveSkillSelection as defaultResolveSkillSelection } from './skillDetection.mjs';
 import { getDigestStatus as defaultReadDigestStatus } from './sourceKnowledge.mjs';
 import { getInteractionLimits, maxQuestionsForSourceMode } from './config.mjs';
-import { buildLocalTopicDigest } from './topicScope.mjs';
 
 const DEFAULT_INTERACTION_LIMITS = getInteractionLimits();
 const DEFAULT_MAX_ANSWER_CHARACTERS = DEFAULT_INTERACTION_LIMITS.maxAnswerCharacters;
@@ -48,29 +47,11 @@ export function createConversationOrchestrator({
       const session = store.get(created.session.id);
 
       try {
-        if (session.sourceMode === 'source') {
-          session.topicDigest = null;
-        } else {
-          const topicDigestInput = {
-            topic: session.topic,
-            goal: session.goal,
-            difficulty: session.difficulty,
-            feedbackStyle: session.feedbackStyle,
-            sourceMode: session.sourceMode,
-            skillProfile: skillRegistry.get('academic-conversation')
-          };
-          if (typeof coach.topicDigest === 'function') {
-            try {
-              session.topicDigest = await coach.topicDigest(topicDigestInput);
-            } catch {
-              session.topicDigest = buildLocalTopicDigest(topicDigestInput);
-            }
-          } else {
-            session.topicDigest = buildLocalTopicDigest(topicDigestInput);
-          }
-        }
+        session.topicDigest = null;
         session.currentQuestion = await coach.initialQuestion({
           ...session,
+          topicDigest: null,
+          conversationTurnCount: 0,
           skillProfile: skillRegistry.get('academic-conversation')
         });
       } catch (error) {
@@ -289,12 +270,14 @@ async function handlePracticeAnswer({ session, payload, store, coach, skillRegis
   }
   assertSessionCanAnswer(session, store);
   ensureTurnBudget(session);
+  const conversationTurnCount = currentSessionTurnCount(session);
   consumeModelBudget(session, session.topic, session.currentQuestion, payload.answer, session.sources.map(source => source.name));
   const feedback = await coach.evaluateAnswer({
     topic: session.topic,
     question: session.currentQuestion,
     answer: payload.answer.trim(),
     turnIndex: session.turns.length,
+    conversationTurnCount,
     feedbackStyle: session.feedbackStyle,
     sources: session.sources,
     topicDigest: session.topicDigest || null,
@@ -311,7 +294,15 @@ async function handlePracticeAnswer({ session, payload, store, coach, skillRegis
   session.turns.push(turn);
   const done = session.turns.length >= session.questionLimit;
   if (done) session.status = 'ready_to_complete';
-  else session.currentQuestion = feedback.nextQuestion;
+  const refinement = await refinePracticeTopicDigestAfterTurn({
+    session,
+    coach,
+    skillRegistry,
+    previousQuestion: turn.question,
+    allowNextQuestion: !done
+  });
+  if (refinement.created && refinement.nextQuestion) feedback.nextQuestion = refinement.nextQuestion;
+  if (!done) session.currentQuestion = refinement.nextQuestion || feedback.nextQuestion;
   const result = { turn, feedback, nextQuestion: done ? null : session.currentQuestion, done };
   if (idempotencyKey) session.idempotency.set(idempotencyKey, result);
   store.save(session);
@@ -354,7 +345,7 @@ export async function handleVoiceTurn({
   const externalResearch = endingRequest
     ? consentDisabledState()
     : await lookupExternalResearch({ session, query: payload.transcript, researchAdapter });
-  const result = await answerTurn({
+  let result = await answerTurn({
     session,
     transcript: payload.transcript,
     transcriptConfidence: payload.transcriptConfidence,
@@ -367,7 +358,17 @@ export async function handleVoiceTurn({
     inputMode: 'voice',
     intentHint: null
   });
+  if (result?.turn && !Array.isArray(session.voiceTurns)) session.voiceTurns = [];
+  if (result?.turn && !session.voiceTurns.some(turn => turn.id === result.turn.id)) session.voiceTurns.push(result.turn);
   const done = Boolean(result.sessionEnded) || currentSessionTurnCount(session) >= session.questionLimit;
+  await refinePracticeTopicDigestAfterTurn({
+    session,
+    coach,
+    skillRegistry,
+    previousQuestion: result?.turn?.question || session.currentQuestion,
+    result,
+    allowNextQuestion: !done
+  });
   if (done) {
     session.status = 'ready_to_complete';
   } else if (result.feedback?.nextQuestion) {

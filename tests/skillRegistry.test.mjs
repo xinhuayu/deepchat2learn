@@ -50,7 +50,11 @@ test('academic conversation skill requires empathetic, explanatory teaching feed
   assert.match(conversation.instructions, /student|learner/i);
   assert.match(conversation.instructions, /main dialogue skill.*practice and source conversation/i);
   assert.match(conversation.instructions, /digest|prepared digest/i);
-  assert.match(conversation.instructions, /orientation|main research question/i);
+  assert.match(conversation.instructions, /definition|orientation/i);
+  assert.match(conversation.instructions, /scope|boundaries/i);
+  assert.match(conversation.instructions, /research aim|main question/i);
+  assert.match(conversation.instructions, /hypothesis|central claim/i);
+  assert.match(conversation.instructions, /setting|population/i);
   assert.match(conversation.instructions, /progress|gradual|stage/i);
   assert.match(conversation.instructions, /short|concise/i);
   assert.match(conversation.instructions, /abstract|restat/i);

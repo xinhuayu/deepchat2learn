@@ -40,7 +40,7 @@ test('startSession creates a session, seeds the first question, and preserves th
   assert.equal(receivedSkillProfile.id, 'academic-conversation');
 });
 
-test('practice session creates and retains a topic digest before asking the opening question', async () => {
+test('practice session defers topic refinement until three conversations and then asks for scope confirmation', async () => {
   const store = new InMemoryStore();
   const calls = [];
   const topicDigest = {
@@ -48,6 +48,7 @@ test('practice session creates and retains a topic digest before asking the open
     topic: 'memory consolidation',
     definition: 'How new memories become stable over time.',
     scope: 'Stay with mechanisms, evidence, and implications of memory consolidation.',
+    gist: 'Within memory consolidation, focus on stabilization mechanisms, evidence, and implications.',
     keyConcepts: ['memory consolidation', 'stabilization'],
     boundaries: ['Do not switch to unrelated learning topics.'],
     anchorQuestion: 'What is the central mechanism?'
@@ -56,12 +57,20 @@ test('practice session creates and retains a topic digest before asking the open
     store,
     coach: {
       async topicDigest(input) {
-        calls.push(['topicDigest', input.topic]);
+        calls.push(['topicDigest', input]);
         return topicDigest;
       },
       async initialQuestion(input) {
         calls.push(['initialQuestion', input.topicDigest]);
-        return 'What is memory consolidation?';
+        return 'What does memory consolidation mean to you?';
+      },
+      async evaluateAnswer(input) {
+        calls.push(['evaluateAnswer', input.conversationTurnCount, input.topicDigest]);
+        return { nextQuestion: 'What should we examine next?' };
+      },
+      async nextQuestion(input) {
+        calls.push(['nextQuestion', input]);
+        return 'Does this focus fit what you want to explore?';
       }
     },
     skillRegistry: createSkillRegistry(),
@@ -71,11 +80,37 @@ test('practice session creates and retains a topic digest before asking the open
   const created = await orchestrator.startSession({ topic: 'memory consolidation' });
   const liveSession = store.get(created.session.id);
 
-  assert.equal(calls[0][0], 'topicDigest');
-  assert.equal(calls[1][0], 'initialQuestion');
-  assert.deepEqual(calls[1][1], topicDigest);
-  assert.deepEqual(liveSession.topicDigest, topicDigest);
-  assert.deepEqual(created.session.topicDigest, topicDigest);
+  assert.equal(calls[0][0], 'initialQuestion');
+  assert.equal(calls[0][1], null);
+  assert.equal(liveSession.topicDigest, null);
+  assert.equal(created.session.topicDigest, null);
+
+  for (const [index, answer] of ['It means stabilizing new memories.', 'It includes what belongs inside the process and what does not.', 'A concrete example is how sleep may support stabilization.'].entries()) {
+    await orchestrator.handleTurn({
+      session: liveSession,
+      route: 'practice_answer',
+      payload: { answer }
+    });
+    if (index < 2) assert.equal(liveSession.topicDigest, null);
+  }
+
+  const digestCall = calls.find(call => call[0] === 'topicDigest');
+  assert.ok(digestCall);
+  assert.equal(digestCall[1].conversationHistory.length, 3);
+  assert.equal(digestCall[1].explicitConstraint, 'within the topic of memory consolidation');
+  assert.deepEqual(digestCall[1].conversationHistory.map(turn => turn.answer), [
+    'It means stabilizing new memories.',
+    'It includes what belongs inside the process and what does not.',
+    'A concrete example is how sleep may support stabilization.'
+  ]);
+  assert.equal(calls.filter(call => call[0] === 'topicDigest').length, 1);
+  assert.equal(calls.filter(call => call[0] === 'evaluateAnswer')[0][2], null);
+  assert.equal(calls.filter(call => call[0] === 'evaluateAnswer')[2][2], null);
+  const confirmationCall = calls.find(call => call[0] === 'nextQuestion');
+  assert.equal(confirmationCall[1].topicDigest.gist, topicDigest.gist);
+  assert.equal(confirmationCall[1].topicDigestReady, true);
+  assert.equal(liveSession.topicDigest.gist, topicDigest.gist);
+  assert.equal(liveSession.currentQuestion, 'Does this focus fit what you want to explore?');
 });
 
 test('handleTurn routes practice answers through evaluateAnswer and advances the next question', async () => {
@@ -116,6 +151,123 @@ test('handleTurn routes practice answers through evaluateAnswer and advances the
   assert.equal(liveSession.currentQuestion, 'How would you support that point with evidence?');
   assert.equal(liveSession.turns.length, 1);
   assert.equal(receivedSkillProfile.id, 'academic-conversation');
+});
+
+test('voice practice refines the topic after the third answered turn and speaks the confirmation question', async () => {
+  const store = new InMemoryStore();
+  const { session } = store.createSession({ topic: 'memory consolidation' });
+  const liveSession = store.get(session.id);
+  liveSession.currentQuestion = 'What does memory consolidation mean to you?';
+  const digest = {
+    mode: 'model',
+    topic: 'memory consolidation',
+    definition: 'How new memories become stable over time.',
+    scope: 'Stay with stabilization mechanisms, evidence, and examples.',
+    gist: 'Within memory consolidation, focus on stabilization mechanisms, evidence, and examples.',
+    keyConcepts: ['memory consolidation', 'stabilization'],
+    boundaries: ['Do not switch to unrelated learning topics.'],
+    anchorQuestion: 'What mechanism matters most?'
+  };
+  let answerNumber = 0;
+  let digestInput = null;
+  let nextQuestionInput = null;
+  const orchestrator = createConversationOrchestrator({
+    store,
+    coach: {
+      async topicDigest(input) {
+        digestInput = input;
+        return digest;
+      },
+      async nextQuestion(input) {
+        nextQuestionInput = input;
+        return 'Does this focus fit what you want to explore?';
+      }
+    },
+    skillRegistry: createSkillRegistry(),
+    researchAdapter: { enabled: false },
+    config: {
+      answerTurn: async ({ session: activeSession, transcript }) => {
+        answerNumber += 1;
+        return {
+          turn: {
+            id: `voice-discovery-${answerNumber}`,
+            sessionId: activeSession.id,
+            question: activeSession.currentQuestion,
+            transcript,
+            status: 'answered',
+            intent: 'coaching',
+            createdAt: new Date().toISOString(),
+            feedback: { nextQuestion: 'What should we examine next?' },
+            answerSpeechText: 'A concise response. Next question: What should we examine next?'
+          },
+          answerText: 'A concise response.',
+          answerSpeechText: 'A concise response. Next question: What should we examine next?',
+          feedback: { nextQuestion: 'What should we examine next?' },
+          followUp: 'What should we examine next?',
+          nextState: 'speaking_answer'
+        };
+      }
+    }
+  });
+
+  for (const transcript of ['It means stabilizing new memories.', 'It includes a boundary around what belongs in the process.', 'Sleep is one example that may support stabilization.']) {
+    await orchestrator.handleTurn({
+      session: liveSession,
+      route: 'voice_turn',
+      payload: { transcript, transcriptReviewed: true, idempotencyKey: `voice-discovery-${answerNumber + 1}` }
+    });
+  }
+
+  assert.equal(digestInput.conversationHistory.length, 3);
+  assert.equal(digestInput.explicitConstraint, 'within the topic of memory consolidation');
+  assert.equal(nextQuestionInput.topicDigestReady, true);
+  assert.equal(nextQuestionInput.topicDigest.gist, digest.gist);
+  assert.equal(liveSession.topicDigest.gist, digest.gist);
+  assert.equal(liveSession.currentQuestion, 'Does this focus fit what you want to explore?');
+  assert.match(liveSession.voiceTurns[2].answerSpeechText, /Does this focus fit what you want to explore/);
+});
+
+test('post-digest scope confirmation falls back when the follow-up model drifts or fails', async () => {
+  const store = new InMemoryStore();
+  const { session } = store.createSession({ topic: 'memory consolidation' });
+  const liveSession = store.get(session.id);
+  liveSession.currentQuestion = 'What does memory consolidation mean to you?';
+  const topicDigest = {
+    mode: 'model',
+    topic: 'memory consolidation',
+    definition: 'How new memories become stable over time.',
+    scope: 'Stay with stabilization mechanisms, evidence, and examples.',
+    gist: 'Within memory consolidation, focus on stabilization mechanisms, evidence, and examples.',
+    keyConcepts: ['memory consolidation', 'stabilization'],
+    boundaries: ['Do not switch to unrelated learning topics.'],
+    anchorQuestion: 'What mechanism matters most?'
+  };
+  const orchestrator = createConversationOrchestrator({
+    store,
+    coach: {
+      async topicDigest() {
+        return topicDigest;
+      },
+      async evaluateAnswer() {
+        return { nextQuestion: 'What should we examine next?' };
+      },
+      async nextQuestion() {
+        return 'What mechanism matters most?';
+      }
+    },
+    skillRegistry: createSkillRegistry(),
+    researchAdapter: { enabled: false }
+  });
+
+  for (const answer of ['It means stabilizing new memories.', 'It includes boundaries around the process.', 'Sleep is one example that may support stabilization.']) {
+    await orchestrator.handleTurn({
+      session: liveSession,
+      route: 'practice_answer',
+      payload: { answer }
+    });
+  }
+
+  assert.equal(liveSession.currentQuestion, 'Does this proposed focus fit what you want to explore within the topic of "memory consolidation"?');
 });
 
 test('typed practice evaluation receives the topic and five most recent exchanges', async () => {

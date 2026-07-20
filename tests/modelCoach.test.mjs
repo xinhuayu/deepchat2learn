@@ -34,6 +34,7 @@ test('topic digestion creates a compact scope constraint before live coaching', 
       return { ok: true, json: async () => ({ output_text: JSON.stringify({
         definition: 'A longitudinal study follows people over time.',
         scope: 'Stay with the design, measures, findings, and interpretation of longitudinal studies.',
+        gist: 'Within longitudinal study design, focus on time order, measures, findings, and interpretation.',
         keyConcepts: ['longitudinal study', 'time order', 'follow-up'],
         boundaries: ['Do not switch to unrelated study designs.', 'Ask for clarification when a response is vague.'],
         anchorQuestion: 'What is the central question in this longitudinal study?'
@@ -41,12 +42,25 @@ test('topic digestion creates a compact scope constraint before live coaching', 
     }
   });
 
-  const digest = await coach.topicDigest({ topic: 'longitudinal study design', goal: 'clarity' });
+  const digest = await coach.topicDigest({
+    topic: 'longitudinal study design',
+    goal: 'clarity',
+    explicitConstraint: 'within the topic of longitudinal study design',
+    conversationHistory: [
+      { question: 'What does it mean?', answer: 'It follows people over time.' },
+      { question: 'What belongs inside it?', answer: 'Time order and follow-up.' },
+      { question: 'What example helps?', answer: 'Repeated measures in a cohort.' }
+    ]
+  });
 
   assert.equal(request.text.format.name, 'topic_digest');
   assert.equal(request.max_output_tokens, 1_200);
   assert.equal(digest.mode, 'model');
   assert.equal(digest.topic, 'longitudinal study design');
+  assert.equal(digest.gist, 'Within longitudinal study design, focus on time order, measures, findings, and interpretation.');
+  const input = JSON.parse(request.input);
+  assert.equal(input.explicitConstraint, 'within the topic of longitudinal study design');
+  assert.equal(input.conversationHistory.length, 3);
   assert.match(request.instructions, /scope|boundaries|unrelated subject/i);
 });
 
@@ -281,7 +295,7 @@ test('resilient coach falls back to local academic coaching when the text model 
     answer: 'The paper studies an exposure and a later outcome.'
   });
 
-  assert.match(question, /paper about|main research question/i);
+  assert.match(question, /mean|paper about|main research question/i);
   assert.notEqual(feedback.academicAssessment.label, 'off_topic');
   assert.deepEqual(fallbackEvents.map(event => event.method), ['initialQuestion', 'evaluateAnswer']);
   assert.equal(fallbackEvents[0].error.code, 'MODEL_REQUEST_FAILED');
@@ -311,12 +325,50 @@ test('opening and follow-up prompts require a gradual academic conversation', as
   });
 
   assert.match(requests[0].instructions, /opening|orientation|main research question|paper is about/i);
+  assert.match(requests[0].instructions, /definition|research aim|scope/i);
   assert.match(requests[1].instructions, /gradual|progress|evidence|interpretation|complex/i);
+  assert.match(requests[1].instructions, /hypothesis|study setting|measures/i);
+  assert.match(requests[1].instructions, /current target stage is design, comparison, and measures/i);
+  assert.doesNotMatch(requests[1].instructions, /first practice conversation/i);
   assert.match(requests[1].instructions, /one concise|short|brief/i);
   assert.match(requests[1].instructions, /do not.*abstract|do not.*restat|avoid.*long/i);
 });
 
-test('model coach advances through orientation, design, population, measures, findings, interpretation, and limitations stages', async () => {
+test('general voice-answer prompts inherit the focused academic conversation skill', async () => {
+  let request = null;
+  const coach = createModelCoach({
+    apiKey: 'test-key',
+    fetchImpl: async (_url, options) => {
+      request = JSON.parse(options.body);
+      return { ok: true, json: async () => ({ output_text: JSON.stringify({
+        answer: 'A focused answer stays within the stated research aim.',
+        sourceGroundedClaims: [],
+        additionalContext: [],
+        unsupportedOrUnresolved: [],
+        confidence: 'medium'
+      }) }) };
+    }
+  });
+
+  await coach.generalAnswer('Why does this aim matter?', {
+    context: {
+      topic: 'research framing',
+      skillProfile: {
+        id: 'academic-conversation',
+        name: 'academic-conversation',
+        instructions: 'Establish definition, scope, research aim, hypothesis, setting, and evidence.',
+        references: {}
+      }
+    }
+  });
+
+  assert.match(request.instructions, /Academic conversation guidance/i);
+  assert.match(request.instructions, /definition|scope|research aim/i);
+  assert.match(request.instructions, /not reported|related open questions|active topic/i);
+  assert.match(request.instructions, /related|unrelated/i);
+});
+
+test('model coach advances through academic framing, evidence, interpretation, and related extensions', async () => {
   const seenStages = [];
   const coach = createModelCoach({
     apiKey: 'test-key',
@@ -359,25 +411,25 @@ test('model coach advances through orientation, design, population, measures, fi
   }));
 
   assert.deepEqual(practiceQuestions, [
-    'Stage check: orientation',
-    'Stage check: design',
-    'Stage check: population',
-    'Stage check: measures',
-    'Stage check: findings',
-    'Stage check: interpretation',
-    'Stage check: limitations, implications, or application'
+    'Stage check: scope and research aim',
+    'Stage check: claim, hypothesis, or central question',
+    'Stage check: study setting, population, unit, and time horizon',
+    'Stage check: design, comparison, and measures',
+    'Stage check: findings and evidence',
+    'Stage check: interpretation and uncertainty',
+    'Stage check: limitations, implications, application, or related extension'
   ]);
   assert.deepEqual(sourceQuestions, [
-    'Stage check: orientation',
-    'Stage check: design',
-    'Stage check: population',
-    'Stage check: measures',
-    'Stage check: findings',
-    'Stage check: interpretation',
-    'Stage check: limitations, implications, or application'
+    'Stage check: scope and research aim',
+    'Stage check: claim, hypothesis, or central question',
+    'Stage check: study setting, population, unit, and time horizon',
+    'Stage check: design, comparison, and measures',
+    'Stage check: findings and evidence',
+    'Stage check: interpretation and uncertainty',
+    'Stage check: limitations, implications, application, or related extension'
   ]);
-  assert.ok(seenStages.some(entry => entry.name === 'coaching_question' && /population/i.test(entry.instructions)));
-  assert.ok(seenStages.some(entry => entry.name === 'source_question' && /population/i.test(entry.instructions)));
+  assert.ok(seenStages.some(entry => entry.name === 'coaching_question' && /hypothesis|study setting|population/i.test(entry.instructions)));
+  assert.ok(seenStages.some(entry => entry.name === 'source_question' && /hypothesis|study setting|population/i.test(entry.instructions)));
 });
 
 test('model coach rejects citations that are not exact source substrings', async () => {

@@ -1,6 +1,7 @@
 const MAX_TOPIC_DIGEST_TEXT = 1_200;
 const MAX_TOPIC_DIGEST_SCOPE = 1_600;
 const MAX_TOPIC_DIGEST_ITEMS = 5;
+export const TOPIC_DIGEST_CONVERSATION_THRESHOLD = 3;
 
 function clean(value, maxLength) {
   return String(value || '').replace(/\s+/g, ' ').trim().slice(0, maxLength);
@@ -26,16 +27,18 @@ export function normalizeTopicDigest(value, topic, { mode = 'model' } = {}) {
 
   const definition = clean(value.definition, MAX_TOPIC_DIGEST_TEXT);
   const scope = clean(value.scope, MAX_TOPIC_DIGEST_SCOPE);
+  const gist = clean(value.gist || definition || scope, MAX_TOPIC_DIGEST_TEXT);
   const anchorQuestion = clean(value.anchorQuestion, MAX_TOPIC_DIGEST_TEXT);
   const keyConcepts = uniqueStrings(value.keyConcepts, MAX_TOPIC_DIGEST_ITEMS);
   const boundaries = uniqueStrings(value.boundaries, 3);
-  if (!definition || !scope || !anchorQuestion || !keyConcepts.length || !boundaries.length) return null;
+  if (!definition || !scope || !gist || !anchorQuestion || !keyConcepts.length || !boundaries.length) return null;
 
   return {
     mode: mode === 'local' ? 'local' : 'model',
     topic: normalizedTopic,
     definition,
     scope,
+    gist,
     keyConcepts,
     boundaries,
     anchorQuestion
@@ -52,6 +55,7 @@ export function buildLocalTopicDigest({ topic, goal = 'clarity' } = {}) {
   return normalizeTopicDigest({
     definition: `The conversation is about ${normalizedTopic}.`,
     scope: `Keep the discussion centered on the meaning of this topic, how its main idea works, and how to explain it clearly. The learning goal is to ${goalText}.`,
+    gist: `Within the topic of ${normalizedTopic}, focus on its meaning, boundaries, main mechanism, and a concrete example.`,
     keyConcepts: [normalizedTopic, 'central idea', 'supporting example'],
     boundaries: [
       `Keep every question and answer tied to ${normalizedTopic}.`,
@@ -68,6 +72,7 @@ export function compactTopicDigest(digest) {
   return {
     definition: normalized.definition,
     scope: normalized.scope,
+    gist: normalized.gist,
     keyConcepts: normalized.keyConcepts.slice(0, 5),
     boundaries: normalized.boundaries.slice(0, 3),
     anchorQuestion: normalized.anchorQuestion

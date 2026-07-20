@@ -438,8 +438,8 @@ test('server uses the model gateway on direct general-answer, digest, and realti
     });
     assert.equal(createdResponse.status, 201);
     const created = await createdResponse.json();
-    assert.equal(gatewayCalls[0].task, 'topic_digest');
-    assert.equal(gatewayCalls[1].task, 'question');
+    assert.equal(gatewayCalls[0].task, 'question');
+    assert.equal(gatewayCalls.some(call => call.task === 'topic_digest'), false);
 
     const answerResponse = await fetch(`${base}/api/sessions/${created.session.id}/questions`, {
       method: 'POST',
@@ -478,7 +478,7 @@ test('server uses the model gateway on direct general-answer, digest, and realti
 
     assert.deepEqual(
       gatewayCalls.map(call => call.task),
-       ['topic_digest', 'question', 'general_answer', 'source_digest', 'source_digest', 'realtime_call']
+       ['question', 'general_answer', 'source_digest', 'source_digest', 'realtime_call']
     );
   } finally {
     await new Promise(resolve => server.close(resolve));

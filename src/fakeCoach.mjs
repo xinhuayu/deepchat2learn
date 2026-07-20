@@ -29,30 +29,47 @@ function buildAcademicResponse({ topic, answer, assessmentLabel }) {
   return `Academic connection: your response addresses ${answerAnchor(answer)} and relates it to ${topic}.`;
 }
 
+function discoveryQuestion({ topic, conversationTurnCount = 0, topicDigestReady = false, afterAnswer = false } = {}) {
+  if (topicDigestReady) return `Does this proposed focus fit what you want to explore within the topic of "${topic}"?`;
+  if (afterAnswer) {
+    if (conversationTurnCount <= 0) return `What belongs inside the topic of "${topic}", and what is your main learning aim?`;
+    if (conversationTurnCount === 1) return `What central claim, hypothesis, mechanism, or comparison matters within "${topic}"?`;
+    if (conversationTurnCount === 2) return `What setting, population, context, or example would make "${topic}" precise?`;
+  }
+  if (conversationTurnCount <= 0) return `What does "${topic}" mean, and what would you like to understand?`;
+  if (conversationTurnCount === 1) return `What belongs inside the topic of "${topic}", and what should we leave out?`;
+  if (conversationTurnCount === 2) return `What central claim, hypothesis, mechanism, or example would make "${topic}" clearer?`;
+  return `What aspect of "${topic}" should we examine next?`;
+}
+
 export function createCoach() {
   return {
-    topicDigest({ topic, goal = 'clarity' }) {
-      return buildLocalTopicDigest({ topic, goal });
+    topicDigest({ topic, goal = 'clarity', conversationHistory = [] }) {
+      return buildLocalTopicDigest({ topic, goal, conversationHistory });
     },
 
     initialQuestion({ topic, sourceMode = 'none', sources = [], sourceDigest = null }) {
-      if (sourceMode === 'source' || sources.length || sourceDigest) return 'What is this paper or material mainly about?';
-      return `What is the main research question or idea you want to explore about "${topic}"?`;
+      if (sourceMode === 'source' || sources.length || sourceDigest) return 'What is this paper or material mainly about, and what is its central research aim?';
+      return `What does "${topic}" mean to you, and what would you like to understand?`;
     },
 
-    nextQuestion({ topic, sources = [], conversationHistory = [] }) {
-      const stage = Array.isArray(conversationHistory) ? conversationHistory.length : 0;
-      if (stage <= 1) return 'What is the main research question or problem here?';
-      if (stage === 2) return 'What study design or approach did the researchers use?';
-      if (stage === 3) return 'Who is the target population or sample in this study?';
-      if (stage === 4) return 'What key concept, variable, or measure should we understand next?';
+    nextQuestion({ topic, sources = [], conversationHistory = [], conversationTurnCount = null, topicDigest = null, topicDigestReady = false }) {
+      const stage = Number.isInteger(conversationTurnCount)
+        ? conversationTurnCount
+        : (Array.isArray(conversationHistory) ? conversationHistory.length : 0);
+      if (!topicDigest && stage <= 2) return discoveryQuestion({ topic, conversationTurnCount: stage, topicDigestReady });
+      if (topicDigestReady) return discoveryQuestion({ topic, conversationTurnCount: stage, topicDigestReady: true });
+      if (stage <= 1) return 'What is the main research aim or question, and what belongs inside its scope?';
+      if (stage === 2) return 'What claim, hypothesis, mechanism, or comparison should we examine?';
+      if (stage === 3) return 'What study setting, population, unit, or time period matters here?';
+      if (stage === 4) return 'What design, comparison, or measure should we understand next?';
       if (stage === 5) return 'What result or piece of evidence seems most important?';
       if (stage === 6) return 'How should we interpret that result?';
       if (sources.length) return 'What limitation or alternative explanation should we consider next?';
       return `What limitation or implication of ${topic} should we examine next?`;
     },
 
-    evaluateAnswer({ topic, question, answer, turnIndex, feedbackStyle = 'supportive' }) {
+    evaluateAnswer({ topic, question, answer, turnIndex, conversationTurnCount = null, topicDigest = null, feedbackStyle = 'supportive' }) {
       const count = words(answer).length;
       const hasExample = /\b(for example|such as|because|when|experience|instance)\b/i.test(answer);
       const clearStart = /\b(the main|my|this|it is|i would|first)\b/i.test(answer);
@@ -86,7 +103,9 @@ export function createCoach() {
         rationale: 'Your answer does not yet address the question or topic closely enough.'
       };
       const anchor = answerAnchor(answer);
-      const nextQuestion = count < 8
+      const nextQuestion = !topicDigest && Number.isInteger(conversationTurnCount) && conversationTurnCount < 3
+        ? discoveryQuestion({ topic, conversationTurnCount, afterAnswer: true })
+        : count < 8
         ? `What example or detail could you add about ${anchor}?`
         : academicAssessment.label === 'direct' && count >= 18
           ? `What is another important aspect of ${topic} that we should examine next?`
@@ -141,10 +160,11 @@ export function createCoach() {
         : (Array.isArray(sourceDigest?.sourceNames) ? sourceDigest.sourceNames.map(name => ({ name })) : []);
       const sourceCount = sources.length || (Array.isArray(sourceDigest?.keyPoints) && sourceDigest.keyPoints.length ? 1 : 0);
       const stage = Array.isArray(conversationHistory) ? conversationHistory.length : null;
-      if (stage !== null && stage <= 1) return sourceCount > 1 ? 'What are these materials mainly about?' : 'What is this paper mainly about?';
-      if (stage !== null && stage === 2) return 'What study design or approach does the material use?';
-      if (stage !== null && stage === 3) return 'Who is the target population or sample in this material?';
-      if (stage !== null && stage === 4) return 'What key concept or measure should we clarify?';
+      if (stage !== null && stage <= 0) return sourceCount > 1 ? 'What are these materials mainly about, and what is their central aim?' : 'What is this paper mainly about, and what is its central research aim?';
+      if (stage !== null && stage === 1) return 'What is the scope of the research question, and what belongs inside or outside it?';
+      if (stage !== null && stage === 2) return 'What claim, hypothesis, or central question does the material examine?';
+      if (stage !== null && stage === 3) return 'What study setting, population, unit, or time period does the material describe?';
+      if (stage !== null && stage === 4) return 'What design, comparison, or measure should we clarify?';
       if (stage !== null && stage === 5) return 'What evidence or result matters most?';
       if (stage !== null && stage === 6) return 'What interpretation should we discuss next?';
       if (stage !== null && stage >= 7) return 'What limitation or implication should we discuss next?';
