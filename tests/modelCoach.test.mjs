@@ -25,6 +25,31 @@ test('interactive questions reserve output headroom for GPT-5 reasoning and stri
   assert.equal(request.max_output_tokens, 880);
 });
 
+test('topic digestion creates a compact scope constraint before live coaching', async () => {
+  let request = null;
+  const coach = createModelCoach({
+    apiKey: 'test-key',
+    fetchImpl: async (_url, options) => {
+      request = JSON.parse(options.body);
+      return { ok: true, json: async () => ({ output_text: JSON.stringify({
+        definition: 'A longitudinal study follows people over time.',
+        scope: 'Stay with the design, measures, findings, and interpretation of longitudinal studies.',
+        keyConcepts: ['longitudinal study', 'time order', 'follow-up'],
+        boundaries: ['Do not switch to unrelated study designs.', 'Ask for clarification when a response is vague.'],
+        anchorQuestion: 'What is the central question in this longitudinal study?'
+      }) }) };
+    }
+  });
+
+  const digest = await coach.topicDigest({ topic: 'longitudinal study design', goal: 'clarity' });
+
+  assert.equal(request.text.format.name, 'topic_digest');
+  assert.equal(request.max_output_tokens, 1_200);
+  assert.equal(digest.mode, 'model');
+  assert.equal(digest.topic, 'longitudinal study design');
+  assert.match(request.instructions, /scope|boundaries|unrelated subject/i);
+});
+
 test('structured model calls fall back to output content when output_text is blank', async () => {
   const coach = createModelCoach({
     apiKey: 'test-key',
@@ -573,12 +598,22 @@ test('model coach includes the selected feedback style and five-turn topic conte
     question: 'Why?',
     answer: 'I explained the main point.',
     feedbackStyle: 'direct',
+    topicDigest: {
+      topic: 'Presentations',
+      definition: 'Presentations explain an idea to an audience.',
+      scope: 'Stay with the main point, support, and takeaway.',
+      keyConcepts: ['main point', 'support'],
+      boundaries: ['Do not switch to an unrelated subject.'],
+      anchorQuestion: 'What is the main point?'
+    },
     conversationHistory: Array.from({ length: 6 }, (_, index) => ({ question: `Q${index}`, answer: `A${index}` }))
   });
   assert.match(instructions, /direct/);
   assert.equal(input.topic, 'Presentations');
   assert.equal(input.conversationHistory.length, 5);
   assert.deepEqual(input.conversationHistory.map(turn => turn.question), ['Q1', 'Q2', 'Q3', 'Q4', 'Q5']);
+  assert.equal(input.topicDigest.scope, 'Stay with the main point, support, and takeaway.');
+  assert.match(instructions, /topic digest|digest boundaries|unrelated subject/i);
 });
 
 test('model coach requires academic relevance, knowledge response, and answer-linked follow-up', async () => {

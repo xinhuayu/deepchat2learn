@@ -40,6 +40,44 @@ test('startSession creates a session, seeds the first question, and preserves th
   assert.equal(receivedSkillProfile.id, 'academic-conversation');
 });
 
+test('practice session creates and retains a topic digest before asking the opening question', async () => {
+  const store = new InMemoryStore();
+  const calls = [];
+  const topicDigest = {
+    mode: 'model',
+    topic: 'memory consolidation',
+    definition: 'How new memories become stable over time.',
+    scope: 'Stay with mechanisms, evidence, and implications of memory consolidation.',
+    keyConcepts: ['memory consolidation', 'stabilization'],
+    boundaries: ['Do not switch to unrelated learning topics.'],
+    anchorQuestion: 'What is the central mechanism?'
+  };
+  const orchestrator = createConversationOrchestrator({
+    store,
+    coach: {
+      async topicDigest(input) {
+        calls.push(['topicDigest', input.topic]);
+        return topicDigest;
+      },
+      async initialQuestion(input) {
+        calls.push(['initialQuestion', input.topicDigest]);
+        return 'What is memory consolidation?';
+      }
+    },
+    skillRegistry: createSkillRegistry(),
+    researchAdapter: { enabled: false }
+  });
+
+  const created = await orchestrator.startSession({ topic: 'memory consolidation' });
+  const liveSession = store.get(created.session.id);
+
+  assert.equal(calls[0][0], 'topicDigest');
+  assert.equal(calls[1][0], 'initialQuestion');
+  assert.deepEqual(calls[1][1], topicDigest);
+  assert.deepEqual(liveSession.topicDigest, topicDigest);
+  assert.deepEqual(created.session.topicDigest, topicDigest);
+});
+
 test('handleTurn routes practice answers through evaluateAnswer and advances the next question', async () => {
   const store = new InMemoryStore();
   const { session } = store.createSession({ topic: 'Practice topic' });
@@ -91,6 +129,15 @@ test('typed practice evaluation receives the topic and five most recent exchange
     answer: `Earlier answer ${index}`,
     createdAt: `2026-07-19T12:0${index}:00.000Z`
   }));
+  liveSession.topicDigest = {
+    mode: 'model',
+    topic: 'Cognitive trajectories and health',
+    definition: 'How cognitive change relates to later health.',
+    scope: 'Stay with trajectories, health outcomes, evidence, and interpretation.',
+    keyConcepts: ['trajectory', 'health outcome'],
+    boundaries: ['Do not switch to an unrelated topic.'],
+    anchorQuestion: 'How are the trajectories related to health?'
+  };
   let received = null;
   const orchestrator = createConversationOrchestrator({
     store,
@@ -127,6 +174,7 @@ test('typed practice evaluation receives the topic and five most recent exchange
     'Earlier question 4',
     'Earlier question 5'
   ]);
+  assert.equal(received.topicDigest.scope, 'Stay with trajectories, health outcomes, evidence, and interpretation.');
 });
 
 test('a typed ending request completes the session without evaluating an answer or asking another question', async () => {

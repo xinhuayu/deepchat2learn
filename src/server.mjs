@@ -187,6 +187,10 @@ function createDirectTextCoach(modelGateway, fallbackCoach) {
   if (!modelGateway || typeof modelGateway.runTextTask !== 'function') return fallbackCoach;
   const directCoach = Object.create(fallbackCoach || null);
   return Object.assign(directCoach, {
+    async topicDigest(input, { signal = null } = {}) {
+      return modelGateway.runTextTask({ task: 'topic_digest', input, signal });
+    },
+
     async initialQuestion(input, { signal = null } = {}) {
       return modelGateway.runTextTask({ task: 'question', input: { ...input, mode: 'initial' }, signal });
     },
@@ -205,8 +209,8 @@ function createDirectTextCoach(modelGateway, fallbackCoach) {
     async buildConsolidatedDigest(input, { signal = null } = {}) {
       return modelGateway.runTextTask({ task: 'source_digest', input, signal });
     },
-    async generalAnswer(question, { signal = null } = {}) {
-      return modelGateway.runTextTask({ task: 'general_answer', input: { question }, signal });
+    async generalAnswer(question, { signal = null, context = null } = {}) {
+      return modelGateway.runTextTask({ task: 'general_answer', input: { question, ...(context || {}) }, signal });
     },
     async groundedAnswer(input, { signal = null } = {}) {
       return modelGateway.runTextTask({ task: 'source_answer', input, signal });

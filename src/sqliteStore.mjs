@@ -43,6 +43,7 @@ export class SqliteStore extends InMemoryStore {
         skill_selection_reason TEXT NOT NULL DEFAULT 'No source-review skill selected.',
         status TEXT NOT NULL,
         current_question TEXT NOT NULL,
+        topic_digest_json TEXT,
         digest_status TEXT,
         digest_json TEXT,
         digest_warnings_json TEXT,
@@ -152,6 +153,7 @@ export class SqliteStore extends InMemoryStore {
     try { this.db.exec(`ALTER TABLE sessions ADD COLUMN turn_budget INTEGER NOT NULL DEFAULT ${this.turnBudget}`); } catch { /* Existing databases already have the column. */ }
     try { this.db.exec(`ALTER TABLE sessions ADD COLUMN model_token_budget INTEGER NOT NULL DEFAULT ${this.modelTokenBudget}`); } catch { /* Existing databases already have the column. */ }
     try { this.db.exec('ALTER TABLE sessions ADD COLUMN model_tokens_used INTEGER NOT NULL DEFAULT 0'); } catch { /* Existing databases already have the column. */ }
+    try { this.db.exec('ALTER TABLE sessions ADD COLUMN topic_digest_json TEXT'); } catch { /* Existing databases already have the column. */ }
     try { this.db.exec('ALTER TABLE sources ADD COLUMN chunks_json TEXT'); } catch { /* Existing databases already have the column. */ }
     try { this.db.exec('ALTER TABLE sources ADD COLUMN status TEXT'); } catch { /* Existing databases already have the column. */ }
     try { this.db.exec('ALTER TABLE sources ADD COLUMN byte_count INTEGER'); } catch { /* Existing databases already have the column. */ }
@@ -190,6 +192,7 @@ export class SqliteStore extends InMemoryStore {
       skillSelectionReason: input.skillSelectionReason || 'No source-review skill selected.',
       status: 'active',
       currentQuestion: '',
+      topicDigest: null,
       turns: [],
       sources: [],
       sourceDigest: null,
@@ -293,6 +296,7 @@ export class SqliteStore extends InMemoryStore {
       skillSelectionReason: row.skill_selection_reason || 'No source-review skill selected.',
       status: row.status,
       currentQuestion: row.current_question,
+      topicDigest: row.topic_digest_json ? JSON.parse(row.topic_digest_json) : null,
       turns,
       sources,
       sourceDigest: row.digest_json ? JSON.parse(row.digest_json) : null,
@@ -317,12 +321,12 @@ export class SqliteStore extends InMemoryStore {
     ensureSessionCollections(session);
     this.db.exec('BEGIN');
     try {
-      this.db.prepare(`UPDATE sessions SET capability_token = ?, topic = ?, goal = ?, difficulty = ?, feedback_style = ?, question_limit = ?, source_mode = ?, skill_id = ?, active_skill_id = ?, conversation_skill_id = ?, skill_selection_reason = ?, status = ?, current_question = ?, retention_mode = ?, audio_storage = ?, turn_budget = ?, model_token_budget = ?, model_tokens_used = ?, created_at = ?, expires_at = ? WHERE id = ?`).run(
-        session.capabilityToken, session.topic, session.goal, session.difficulty, session.feedbackStyle, session.questionLimit, session.sourceMode, session.skillId || 'none', session.activeSkillId || 'none', session.conversationSkillId || (session.sourceMode === 'source' ? 'academic-conversation' : 'none'), session.skillSelectionReason || 'No source-review skill selected.', session.status, session.currentQuestion, session.retentionMode || 'session', session.audioStorage || 'never', session.turnBudget ?? this.turnBudget, session.modelTokenBudget ?? this.modelTokenBudget, session.modelTokensUsed ?? 0, session.createdAt, session.expiresAt, session.id
+      this.db.prepare(`UPDATE sessions SET capability_token = ?, topic = ?, goal = ?, difficulty = ?, feedback_style = ?, question_limit = ?, source_mode = ?, skill_id = ?, active_skill_id = ?, conversation_skill_id = ?, skill_selection_reason = ?, status = ?, current_question = ?, topic_digest_json = ?, retention_mode = ?, audio_storage = ?, turn_budget = ?, model_token_budget = ?, model_tokens_used = ?, created_at = ?, expires_at = ? WHERE id = ?`).run(
+        session.capabilityToken, session.topic, session.goal, session.difficulty, session.feedbackStyle, session.questionLimit, session.sourceMode, session.skillId || 'none', session.activeSkillId || 'none', session.conversationSkillId || (session.sourceMode === 'source' ? 'academic-conversation' : 'none'), session.skillSelectionReason || 'No source-review skill selected.', session.status, session.currentQuestion, session.topicDigest ? JSON.stringify(session.topicDigest) : null, session.retentionMode || 'session', session.audioStorage || 'never', session.turnBudget ?? this.turnBudget, session.modelTokenBudget ?? this.modelTokenBudget, session.modelTokensUsed ?? 0, session.createdAt, session.expiresAt, session.id
       );
       if (!this.db.prepare('SELECT 1 FROM sessions WHERE id = ?').get(session.id)) {
-        this.db.prepare(`INSERT INTO sessions (id, capability_token, topic, goal, difficulty, feedback_style, question_limit, source_mode, skill_id, active_skill_id, conversation_skill_id, skill_selection_reason, status, current_question, digest_status, digest_json, digest_warnings_json, digest_error_json, retention_mode, audio_storage, turn_budget, model_token_budget, model_tokens_used, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
-          session.id, session.capabilityToken, session.topic, session.goal, session.difficulty, session.feedbackStyle, session.questionLimit, session.sourceMode, session.skillId || 'none', session.activeSkillId || 'none', session.conversationSkillId || (session.sourceMode === 'source' ? 'academic-conversation' : 'none'), session.skillSelectionReason || 'No source-review skill selected.', session.status, session.currentQuestion, session.digestStatus || null, session.sourceDigest ? JSON.stringify(session.sourceDigest) : null, JSON.stringify(session.digestWarnings || []), session.digestError ? JSON.stringify(session.digestError) : null, session.retentionMode || 'session', session.audioStorage || 'never', session.turnBudget ?? this.turnBudget, session.modelTokenBudget ?? this.modelTokenBudget, session.modelTokensUsed ?? 0, session.createdAt, session.expiresAt
+        this.db.prepare(`INSERT INTO sessions (id, capability_token, topic, goal, difficulty, feedback_style, question_limit, source_mode, skill_id, active_skill_id, conversation_skill_id, skill_selection_reason, status, current_question, topic_digest_json, digest_status, digest_json, digest_warnings_json, digest_error_json, retention_mode, audio_storage, turn_budget, model_token_budget, model_tokens_used, created_at, expires_at) VALUES (${Array.from({ length: 26 }, () => '?').join(', ')})`).run(
+          session.id, session.capabilityToken, session.topic, session.goal, session.difficulty, session.feedbackStyle, session.questionLimit, session.sourceMode, session.skillId || 'none', session.activeSkillId || 'none', session.conversationSkillId || (session.sourceMode === 'source' ? 'academic-conversation' : 'none'), session.skillSelectionReason || 'No source-review skill selected.', session.status, session.currentQuestion, session.topicDigest ? JSON.stringify(session.topicDigest) : null, session.digestStatus || null, session.sourceDigest ? JSON.stringify(session.sourceDigest) : null, JSON.stringify(session.digestWarnings || []), session.digestError ? JSON.stringify(session.digestError) : null, session.retentionMode || 'session', session.audioStorage || 'never', session.turnBudget ?? this.turnBudget, session.modelTokenBudget ?? this.modelTokenBudget, session.modelTokensUsed ?? 0, session.createdAt, session.expiresAt
         );
       }
       this.db.prepare('UPDATE sessions SET digest_status = ?, digest_json = ?, digest_warnings_json = ?, digest_error_json = ? WHERE id = ?').run(session.digestStatus || null, session.sourceDigest ? JSON.stringify(session.sourceDigest) : null, JSON.stringify(session.digestWarnings || []), session.digestError ? JSON.stringify(session.digestError) : null, session.id);
@@ -496,6 +500,7 @@ function ensureSessionCollections(session) {
   if (!Array.isArray(session.sources)) session.sources = [];
   if (!Array.isArray(session.digestWarnings)) session.digestWarnings = [];
   if (!('sourceDigest' in session)) session.sourceDigest = null;
+  if (!('topicDigest' in session)) session.topicDigest = null;
   if (!('digestStatus' in session)) session.digestStatus = null;
   if (!('digestError' in session)) session.digestError = null;
   if (!('retentionMode' in session)) session.retentionMode = 'session';

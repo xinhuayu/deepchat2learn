@@ -342,7 +342,14 @@ async function buildSourceAnswerResult({ turn, session, store, coach, retrievedC
   const readinessMessage = pendingSourceProcessingMessage(session);
   if (readinessMessage) {
     const raw = typeof coach?.generalAnswer === 'function'
-      ? await coach.generalAnswer(turn.transcript)
+      ? await coach.generalAnswer(turn.transcript, {
+        context: {
+          topic: session.topic,
+          currentQuestion: session.currentQuestion || null,
+          topicDigest: session.topicDigest || null,
+          conversationHistory: buildConversationHistory(session, { limit: 5 })
+        }
+      })
       : {
         mode: 'general',
         answer: 'I can still help with the topic in general terms while your materials finish processing.',
@@ -446,8 +453,9 @@ async function buildNewQuestionResult({ turn, session, coach, skillRegistry }) {
         conversationHistory,
         conversationTurnCount: countConversationTurns(session),
         sources: session.sources || [],
-        sourceDigest: session.sourceDigest || null,
-        skillProfile
+      sourceDigest: session.sourceDigest || null,
+      topicDigest: session.topicDigest || null,
+      skillProfile
     });
   } else if (typeof coach?.initialQuestion === 'function') {
     nextQuestion = await coach.initialQuestion({ topic: session.topic, skillProfile });
@@ -475,7 +483,14 @@ async function buildNewQuestionResult({ turn, session, coach, skillRegistry }) {
 
 async function buildGeneralAnswerResult({ turn, session, coach, researchContext }) {
   const raw = typeof coach?.generalAnswer === 'function'
-    ? await coach.generalAnswer(turn.transcript)
+    ? await coach.generalAnswer(turn.transcript, {
+      context: {
+        topic: session.topic,
+        currentQuestion: session.currentQuestion || null,
+        topicDigest: session.topicDigest || null,
+        conversationHistory: buildConversationHistory(session, { limit: 5 })
+      }
+    })
     : {
       mode: 'general',
       answer: `Here is a starting point for “${turn.transcript}”.`,
@@ -535,6 +550,7 @@ async function buildCoachingResult({ turn, session, coach, skillProfile }) {
     turnIndex: Array.isArray(session.turns) ? session.turns.length : 0,
     feedbackStyle: session.feedbackStyle,
     sources: session.sources || [],
+    topicDigest: session.topicDigest || null,
     conversationHistory: buildConversationHistory(session, { limit: 5 }),
     skillProfile
   });

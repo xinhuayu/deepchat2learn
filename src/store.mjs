@@ -445,6 +445,7 @@ export class InMemoryStore {
       skillSelectionReason: input.skillSelectionReason || 'No source-review skill selected.',
       status: 'active',
       currentQuestion: '',
+      topicDigest: null,
       turns: [],
       sources: [],
       sourceDigest: null,
@@ -504,6 +505,7 @@ export class InMemoryStore {
       skillSelectionReason: session.skillSelectionReason || 'No source-review skill selected.',
       status: session.status,
       currentQuestion: session.currentQuestion,
+      topicDigest: session.topicDigest || null,
       turnCount: countCompletedTurns(session),
       sourceCount: session.sources.length,
       retentionMode: session.retentionMode,
@@ -591,6 +593,7 @@ function ensureSessionCollections(session) {
   if (!Array.isArray(session.sources)) session.sources = [];
   if (!Array.isArray(session.digestWarnings)) session.digestWarnings = [];
   if (!('sourceDigest' in session)) session.sourceDigest = null;
+  if (!('topicDigest' in session)) session.topicDigest = null;
   if (!('digestStatus' in session)) session.digestStatus = null;
   if (!('digestError' in session)) session.digestError = null;
   if (!('researchConsent' in session)) session.researchConsent = null;

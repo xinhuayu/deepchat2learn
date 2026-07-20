@@ -1,10 +1,10 @@
 <p align="center"><img src="public/brand-logo.png" alt="deepchat2learn logo" width="220"></p>
 
-# deepchat2learn - AI Coaching MVP
+# deepchat2learn - AI for Learning MVP
 
 > **Feature-freeze baseline:** `v0.1.0` is the controlled-demonstration and GitHub-submission baseline. It freezes the verified learning flow; it is not a public-production 1.0 release. See the [release baseline](docs/RELEASE-BASELINE-v0.1.0.md).
 
-deepchat2learn is a browser-based coaching app for practicing explanations and exploring supplied source material. The dependency-free local setup includes a deterministic coach and can optionally use a server-side text model, live AI voice, and SQLite persistence.
+deepchat2learn is a browser-based AI-for-learning app for deep conversations, explanation practice, and exploration of supplied source material. The dependency-free local setup includes a deterministic learning fallback and can optionally use a server-side text model, live AI voice, and SQLite persistence.
 
 Bundled skill profiles can shape how supplied materials are digested and discussed. The first profile is `epi-research`, a doctoral-level epidemiologic methods critique guide stored under `skills/epi-research/`. Skill guidance controls the review method and response structure; paper-specific claims and citations must still come from the uploaded material.
 
@@ -62,7 +62,7 @@ OPENAI_API_KEY=
 
 The server loads `.env` automatically and reads `OPENAI_API_KEY` only on the server. `.env` is ignored by Git; never commit it or share it in screenshots, logs, or chat. If the key is blank or the `.env` file is absent, the typed path, browser voice input, and spoken browser playback still work through the local demo and browser capabilities.
 
-To use the optional model-backed text coaching and OpenAI Realtime voice, fill in the key and keep the remaining settings from `.env.example` unless you have a reason to change them.
+To use the optional model-backed AI-for-learning text service and OpenAI Realtime voice, fill in the key and keep the remaining settings from `.env.example` unless you have a reason to change them.
 
 Interactive text turns use a 45-second default deadline, balancing fuller remote-model response time with a responsive live conversation; the local academic fallback continues the session if the gateway deadline is reached. Source digestion keeps its separate 180-second deadline and a 12,000-token structured-response allowance to reduce incomplete digests. You can adjust `OPENAI_TEXT_TIMEOUT_MS` in `.env` when the deployment has a faster or slower connection.
 
@@ -119,9 +119,10 @@ Set `SQLITE_PATH=./data/deepchat2learn.sqlite` to persist sessions and supplied 
 
 ## Current slice
 
-- Topic-based coaching setup with progressive settings.
+- Topic-based AI-for-learning setup with progressive settings.
+- Practice-session topic scoping: a concise definition-and-boundaries digest is created before the first question, persisted in the session, and reused to keep later rounds coherent when learner answers or questions are vague.
 - Typed answer loop: question -> answer -> feedback -> follow-up -> summary.
-- Coaching feedback includes an academic relevance judgment, a concise knowledge-based explanation or correction, and a follow-up tied to the learner's latest claim or gap. Voice coaching speaks only one brief, concrete next action before asking the focused follow-up.
+- Learning feedback includes an academic relevance judgment, a concise knowledge-based explanation or correction, and a follow-up tied to the learner's latest claim or gap. AI voice gives only one brief, concrete next learning step before asking the focused follow-up.
 - Session-scoped capability tokens and in-memory retention.
 - Optional PDF, DOCX, TXT, Markdown, or pasted material for source-grounded questions. The default per-file limit is 20 MB, and the browser reads the active deployment limit from the server. PDF ingestion works on ordinary Node web hosts without Python and retains page-aware text, table rows, table/figure captions, embedded-figure metadata, and safely extractable figure bytes when available. Set `DEEPCHAT2LEARN_PYTHON_BIN` to a Python executable with `pdfplumber` installed for stronger research-paper extraction; the Node fallback remains the required baseline. Scanned-PDF OCR and visual figure interpretation are not included.
 - Optional local audio recording of the active conversation. It requires a browser that supports `MediaRecorder` and an allowed microphone permission; if either is unavailable, the regular typed and voice controls still work but recording stays off. The recording never uploads to the server, never enters transcripts, and never becomes part of the session record.
@@ -130,9 +131,9 @@ Set `SQLITE_PATH=./data/deepchat2learn.sqlite` to persist sessions and supplied 
 - Source conversation rounds use a compact academic dialogue protocol; full research digestion and epidemiology critique guidance are reserved for source processing or explicit review requests so voice turns remain responsive.
 - Source answers combine exact document evidence with clearly labeled general LLM context, discussion points, suggestions, uncertainty, and follow-up questions. External research remains consent-gated.
 - Per-source digests persist and reappear after adding multiple materials or refreshing the session.
-- Material-generated coaching questions persist as the active turn, including across refresh and SQLite-backed sessions.
-- A session started with supplied material opens with a grounded coaching question; material-free sessions keep the general topic question.
-- With multiple supplied materials, the local fallback coach asks a comparison question across them.
+- Material-generated learning questions persist as the active turn, including across refresh and SQLite-backed sessions.
+- A session started with supplied material opens with a grounded learning question; material-free sessions keep the general topic question.
+- With multiple supplied materials, the local AI-for-learning fallback asks a comparison question across them.
 - Optional SQLite persistence with FTS5 source retrieval across restarts.
 - Model-backed source answers validate exact evidence substrings before showing citations.
 - Potentially conflicting source passages are surfaced instead of silently hidden.
@@ -141,11 +142,11 @@ Set `SQLITE_PATH=./data/deepchat2learn.sqlite` to persist sessions and supplied 
 - Duplicate source content is rejected using SHA-256 content hashes.
 - API requests are rate-limited per session token or client address.
 - Browser speech synthesis captions/playback and optional browser speech recognition.
-- Voice conversation follows a focused continuous loop: start the session, speak the question, listen for the answer, wait five seconds after the final transcript, retrieve and digest source material when applicable, speak one concise coaching step and a focused follow-up, then listen again. Say "end the session," "finish the conversation," "wrap up," or "I am done" to receive a brief closing message and move directly to the summary instead of receiving another question.
-- Voice status announces listening, answer finalization, source retrieval/digestion, evaluation, and speaking phases. The actual status message is visibly highlighted while the AI is speaking or evaluating, while the separate spoken-line caption remains an unhighlighted transcript of AI output. Temporary failures preserve the captured transcript for retry, while typed answers remain available as a fallback. During AI speech, microphone input is paused to prevent echo capture; the explicit Interrupt answer control cancels AI output before listening continues.
+- Voice conversation follows a focused continuous learning loop: start the session, hear the question, listen for the answer, wait five seconds after the final transcript, retrieve and digest source material when applicable, give one concise learning step and a focused follow-up, then listen again. Say "end the session," "finish the conversation," "wrap up," or "I am done" to receive a brief closing message and move directly to the summary instead of receiving another question.
+- Voice status announces listening, answer finalization, source retrieval/digestion, evaluation, and speaking phases. The actual status message is visibly highlighted while the AI is speaking or evaluating, while the separate spoken-line caption remains an unhighlighted transcript of AI output. Temporary failures preserve the captured transcript for retry, while typed answers remain available as a fallback. During AI speech, microphone input is paused to prevent echo capture; the explicit Interrupt AI answer control cancels AI output before listening continues.
 - Realtime voice closes and reconnects transport independently from the academic session. Server-side VAD finalizes user speech after configured silence, while echo cancellation, noise suppression, and automatic gain control are requested from the browser.
 - Mobile voice is capability-driven rather than tied to a particular phone, operating system, or browser. When Realtime is configured, mobile Start voice uses the WebRTC audio path even if browser SpeechRecognition is present or inconsistent; otherwise the app uses browser speech when available and keeps typed controls as the fallback. Permission prompts are requested sequentially, and a one-time page tap can unlock remote audio when a mobile browser blocks autoplay.
-- Both practice and source conversations use only the compact academic-conversation guide for each dialogue turn. Full academic-research and epi-research guidance is reserved for source digestion or explicit review requests. Practice prompts retain the topic and up to five related exchanges. After a source is digested, source prompts send only the topic, prepared digest/gist, compact exact-evidence options, and the three latest exchanges; the full document and raw chunks remain server-local for validation and fallbacks. A complete answer advances to a different related question; say "new question," "ask something new," or "another issue" to move on immediately, or use an explicit ending phrase to finish the session. Source-review skills remain focused on digesting and reviewing supplied materials.
+- Both practice and source conversations use only the compact academic-conversation guide for each dialogue turn. Full academic-research and epi-research guidance is reserved for source digestion or explicit review requests. Practice prompts carry the persisted topic-scope digest, the topic, and up to five related exchanges. After a source is digested, source prompts send only the topic, prepared digest/gist, compact exact-evidence options, and the three latest exchanges; the full document and raw chunks remain server-local for validation and fallbacks. A complete answer advances to a different related question; say "new question," "ask something new," or "another issue" to move on immediately, or use an explicit ending phrase to finish the session. Source-review skills remain focused on digesting and reviewing supplied materials.
 - The on-page session review is reset when a new session is successfully created and is rendered newest-first. Durable review records retain their creation time so the order remains correct after a refresh.
 - Voice timing and transcript size are configurable through `VOICE_AUTO_SUBMIT_DELAY_MS`, `VOICE_TRANSITION_DELAY_MS`, `VOICE_REALTIME_SILENCE_MS`, `VOICE_REALTIME_WATCHDOG_MS`, `VOICE_MAX_RECOGNITION_RETRIES`, and `VOICE_MAX_TRANSCRIPT_CHARACTERS`. The browser and Realtime silence boundaries default to five seconds; the realtime watchdog defaults to `0` (disabled), so active speech is not cut off by elapsed time. Model requests use `OPENAI_TEXT_TIMEOUT_MS` (45 seconds by default, with a local fallback on a gateway deadline); source digestion uses the longer `OPENAI_SOURCE_DIGEST_TIMEOUT_MS` deadline, bounded digest context, and its own 12,000-token output allowance. JSON request bodies default to 28 MB so a base64-encoded source can fit within the 20 MB per-file limit; adjust `MAX_REQUEST_BODY_BYTES` with the source limits if needed.
 - The recording UI is explicitly user-driven: the user must start recording, stop it, and choose whether to download the resulting file.

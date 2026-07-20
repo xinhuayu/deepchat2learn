@@ -23,7 +23,7 @@ npm run verify
 node --test tests/voiceBrowserHarness.test.mjs
 ```
 
-The automated voice harness verifies continuous startup, five-second browser auto-submission, five-second Realtime silence detection, two reconnect attempts, strict browser and Realtime turn-taking, direct session-ending requests, concise spoken coaching, retryable failed transcripts, source-grounded answers, and typed fallback. The optional Python PDF test may be skipped when `pdfplumber` is not installed; Node-only PDF extraction remains tested.
+The automated voice harness verifies continuous startup, five-second browser auto-submission, five-second Realtime silence detection, two reconnect attempts, strict browser and Realtime turn-taking, direct session-ending requests, concise spoken learning guidance, retryable failed transcripts, source-grounded answers, and typed fallback. The optional Python PDF test may be skipped when `pdfplumber` is not installed; Node-only PDF extraction remains tested.
 
 Add recording scenarios to the manual check list when you verify this build:
 
@@ -42,7 +42,7 @@ Add recording scenarios to the manual check list when you verify this build:
 3. On a mobile device, confirm the primary voice button and visibly highlighted live processing/status message appear immediately below the AI question without scrolling. The separate latest-spoken-line caption must not receive the processing highlight.
 4. Speak for at least 10 seconds with one or two natural pauses shorter than five seconds.
 5. Pause for five seconds and confirm the transcript submits automatically.
-6. Confirm the spoken response includes one brief, concrete coaching step and a focused follow-up, then listening resumes.
+6. Confirm the spoken response includes one brief, concrete learning step and a focused follow-up, then listening resumes.
 7. Speak while the AI is still answering. Confirm the AI speech stops, your transcript becomes the active answer, and the five-second silence window starts after your latest speech. The “Stop voice conversation” and “Speak answer” controls should darken while active.
 8. In a practice round, answer the question with a complete research claim or example. Confirm the academic conversation moves to a different related question. Say “new question” or “another issue” and confirm a fresh question appears without increasing the completed-answer count.
 9. Say "end the session," "finish the conversation," "wrap up," or "I am done." Confirm the app gives a brief closure, asks no next question, and moves to the summary page.

@@ -6,15 +6,15 @@ This folder is the GitHub-ready source package for `deepchat2learn` `v0.1.0`, th
 
 - Application source, browser UI, bundled academic skills, tests, and current project documentation.
 - `.env.example` with blank secrets and a blank, portable Python executable setting.
-- Continuous interruption-safe voice turn-taking, explicit session-ending phrases, concise spoken coaching, highlighted voice-processing status, and regression tests.
+- Continuous interruption-safe voice turn-taking, explicit session-ending phrases, concise spoken learning guidance, highlighted voice-processing status, and regression tests.
 - `README.md`, `PROJECT-SUMMARY.md`, `RUN-THIS.md`, `CHANGELOG.md`, and this checklist for release and future-test handoff.
-- The versioned system summary, technical inventory, audit record, editable diagrams, and `docs/SYSTEM-SUMMARY.pdf`.
+- The versioned Markdown system summary, technical inventory, audit record, and editable diagrams.
 
 ## Intentionally excluded
 
 - `.env` contents and API keys
 - SQLite databases, uploaded source documents, transcripts, recordings, logs, temporary files, and `node_modules`
-- Ad hoc generated PDF exports and other local-only artifacts; the deliberately versioned `docs/SYSTEM-SUMMARY.pdf` is included
+- Ad hoc generated PDF exports and other local-only artifacts
 - Inherited Git history; initialize or attach this clean folder to the intended GitHub repository.
 
 ## Before committing
@@ -24,7 +24,7 @@ This folder is the GitHub-ready source package for `deepchat2learn` `v0.1.0`, th
 3. Run `npm run verify` from the repository root, then use `RUN-THIS.md` for optional manual microphone and source checks.
 4. Initialize Git here (or attach this folder to the intended repository), then commit the package.
 
-The application can run without an API key using its deterministic local coach. A provider key is required for comprehensive remote model responses and Realtime/WebRTC voice. Python is optional; configure the host's own Python executable and PDF packages only when richer extraction is needed for complex research PDFs.
+The application can run without an API key using its deterministic local AI-for-learning fallback. A provider key is required for comprehensive remote model responses and Realtime/WebRTC voice. Python is optional; configure the host's own Python executable and PDF packages only when richer extraction is needed for complex research PDFs.
 
 ## Feature-freeze change control
 

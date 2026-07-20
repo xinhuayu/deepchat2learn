@@ -2,7 +2,8 @@ flowchart TB
     Start["Create or start a new session"] --> Init["Clear visible review and initialize isolated topic, mode, history, and budget"]
     Init --> Mode{"Learning mode"}
 
-    Mode -->|Practice speaking| Question["Present the active focused question"]
+    Mode -->|Practice speaking| Scope["Create concise topic definition, scope, concepts, boundaries, and anchor question"]
+    Scope -->|Remote digest or local fallback| Question["Present the active focused question"]
     Mode -->|Source-centred| Upload["Upload or paste source material"]
 
     Upload --> Limits["Validate file type, size, pages, and words"]
@@ -26,7 +27,7 @@ flowchart TB
     Fresh --> Question
     Intent -->|Direct question or ordinary response| Context{"Session mode"}
 
-    Context -->|Practice| PracticeCtx["Topic + up to 5 compact exchanges; evaluate explanation and choose one brief next step"]
+    Context -->|Practice| PracticeCtx["Topic + persisted scope digest + up to 5 compact exchanges; evaluate inside boundaries and choose one brief next step"]
     Context -->|Source| SourceCtx["Topic + digest/gist + compact exact evidence + latest 3 exchanges; raw paper remains local"]
     PracticeCtx --> Model["Request structured academic-conversation response"]
     SourceCtx --> Model
@@ -36,5 +37,5 @@ flowchart TB
     Valid -->|No| Fallback["Use bounded local fallback and keep completed transcript retryable"]
     Fallback --> Verify
     Verify --> Persist["Persist turn, update agenda/topic/budget, and add review record"]
-    Persist --> Reply["Return concise explanation or coaching plus one focused next question"]
+    Persist --> Reply["Return concise explanation or learning guidance plus one focused next question"]
     Reply --> Question

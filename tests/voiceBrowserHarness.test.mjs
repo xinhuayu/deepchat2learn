@@ -800,7 +800,6 @@ function createHarnessDom() {
     'voicePauseButton',
     'voiceStopButton',
     'voiceRetryButton',
-    'repeatSpokenLine',
     'liveVoiceButton',
     'endSession',
     'newSession',
@@ -1589,7 +1588,7 @@ test('failed voice turns remain retryable with the same transcript', async () =>
   assert.equal(harness.document.activeElement?.id, 'voiceRetryButton');
 });
 
-test('spoken questions expose a visible caption and repeat the last spoken line on request', async () => {
+test('spoken questions expose a visible caption without a redundant repeat control', async () => {
   const harness = await createHarness({ currentQuestion: 'What is the paper\'s main argument?' });
 
   harness.document.querySelector('#voiceConversationButton').click();
@@ -1597,14 +1596,7 @@ test('spoken questions expose a visible caption and repeat the last spoken line 
 
   assert.match(harness.document.querySelector('#voiceStateLabel').textContent, /AI speaking/i);
   assert.match(harness.document.querySelector('#voiceCaptionText').textContent, /What is the paper's main argument\?/i);
-  assert.equal(harness.document.querySelector('#repeatSpokenLine').disabled, false);
-
-  const queueLength = harness.speechSynthesis.queue.length;
-  harness.document.querySelector('#repeatSpokenLine').click();
-  await harness.flush();
-
-  assert.equal(harness.speechSynthesis.queue.length, queueLength + 1);
-  assert.equal(harness.speechSynthesis.queue.at(-1), 'What is the paper\'s main argument?');
+  assert.equal(harness.document.querySelector('#repeatSpokenLine'), null);
 });
 
 test('stopping during a pending turn prevents a stale answer from being rendered or spoken', async () => {
@@ -1906,11 +1898,18 @@ test('browser voice requires explicit interruption before listening during AI sp
   assert.equal(harness.voiceCoordinator.state, 'speaking');
   assert.equal(harness.document.querySelector('#answerText').value, '');
 
+  harness.document.querySelector('#answerText').value = 'The prior spoken answer should not carry forward.';
+  harness.document.querySelector('#materialQuestion').value = 'The prior spoken question should not carry forward.';
+  harness.voiceCoordinator.captureSegments = ['The stale recognition segment should not carry forward.'];
   harness.document.querySelector('#voiceInterruptButton').click();
   await harness.flush();
   assert.ok(harness.speechSynthesis.cancelCount > cancelCount);
   assert.equal(harness.voiceCoordinator.state, 'listening');
   assert.equal(recognition.started, true);
+  assert.equal(harness.document.querySelector('#answerText').value, '');
+  assert.equal(harness.document.querySelector('#materialQuestion').value, '');
+  assert.equal(harness.voiceCoordinator.captureSegments.length, 0);
+  assert.equal(JSON.parse(harness.sessionStorageWrites.at(-1).value).draft, '');
 });
 
 test('standalone speak-answer input auto-submits after five seconds of silence', async () => {

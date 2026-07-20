@@ -155,6 +155,8 @@ function resolveTextOperation({ task, input, textCoach, summaryHandler }) {
   switch (task) {
     case 'question':
       return resolveQuestionOperation(textCoach, input);
+    case 'topic_digest':
+      return createCoachOperation(textCoach, 'topicDigest', input, task);
     case 'practice_evaluation':
       return createCoachOperation(textCoach, 'evaluateAnswer', input, task);
     case 'source_digest':
@@ -173,7 +175,8 @@ function resolveTextOperation({ task, input, textCoach, summaryHandler }) {
           if (typeof textCoach?.generalAnswer !== 'function') {
             throw missingHandlerError(task, 'generalAnswer');
           }
-          return textCoach.generalAnswer(normalizeGeneralQuestion(input), { signal });
+          const normalized = normalizeGeneralAnswerInput(input);
+          return textCoach.generalAnswer(normalized.question, { signal, context: normalized.context });
         }
       };
     case 'summary':
@@ -445,6 +448,20 @@ function normalizeGeneralQuestion(input) {
     });
   }
   return question;
+}
+
+function normalizeGeneralAnswerInput(input) {
+  if (typeof input === 'string') return { question: normalizeGeneralQuestion(input), context: null };
+  const question = normalizeGeneralQuestion(input);
+  const context = input && typeof input === 'object'
+    ? {
+      topic: input.topic || null,
+      currentQuestion: input.currentQuestion || null,
+      topicDigest: input.topicDigest || null,
+      conversationHistory: Array.isArray(input.conversationHistory) ? input.conversationHistory : []
+    }
+    : null;
+  return { question, context };
 }
 
 function missingHandlerError(task, handlerName) {

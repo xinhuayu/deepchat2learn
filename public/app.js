@@ -7,6 +7,7 @@ const voicePolicy = {
   realtimeWatchdogMs: 0,
   maxRecognitionRetries: 8
 };
+const REALTIME_ICE_GATHERING_TIMEOUT_MS = 10_000;
 const BROWSER_CONVERSATION_STATES = [
   'idle',
   'ai-speaking',
@@ -285,9 +286,9 @@ async function loadServiceStatus() {
     const connection = data.connection || {};
     state.realtimeConfigured = connection?.realtimeVoice === 'configured';
     const privacy = data.privacy || {};
-    const coach = connection?.textModel === 'configured'
-      ? 'AI text coaching is configured.'
-      : 'Local demo coach is active.';
+    const learningService = connection?.textModel === 'configured'
+      ? 'AI-for-learning text service is configured.'
+      : 'Local AI-for-learning mode is active.';
     const voice = connection?.realtimeVoice === 'configured'
       ? ' Live AI voice is configured.'
       : state.recognition
@@ -299,10 +300,10 @@ async function loadServiceStatus() {
     const privacyNote = privacy.defaultRetentionMode
       ? ` Default retention is ${privacy.defaultRetentionMode.replace('_', ' ')} and audio is ${privacy.audioStorage || 'never'} stored.`
       : '';
-    status.textContent = `${coach}${voice}${storage}${privacyNote}`;
+    status.textContent = `${learningService}${voice}${storage}${privacyNote}`;
     syncVoiceAccessSetup();
   } catch {
-    status.textContent = 'Coaching service status is unavailable. You can still start a local session.';
+    status.textContent = 'AI-for-learning service status is unavailable. You can still start a local session.';
     syncVoiceAccessSetup();
   }
 }
@@ -432,6 +433,14 @@ function clearVoiceCapture() {
   voiceCoordinator.captureCycleResults = new Map();
   voiceCoordinator.captureCycleId = null;
   voiceCoordinator.captureInterim = '';
+}
+
+function clearVoiceAnswerDraft() {
+  $('#answerText').value = '';
+  $('#materialQuestion').value = '';
+  state.voiceSubmissionKey = null;
+  state.voiceReviewPending = false;
+  persistClientSession();
 }
 
 function normalizeVoiceTranscript(value) {
@@ -576,7 +585,7 @@ function applyVoiceEventsState(event) {
   } else if (event.type === 'user_speech_started') {
     if (state.voiceConversation === 'speaking' || voiceCoordinator.state === 'speaking') {
       setLiveInputEnabled(false);
-      setVoiceAnnouncement('AI is still speaking. Press “Interrupt answer” before speaking.');
+       setVoiceAnnouncement('AI is still speaking. Press “Interrupt AI answer” before speaking.');
       return;
     }
     voiceCoordinator.state = 'listening';
@@ -666,7 +675,7 @@ function browserStateLabel(browserState) {
 }
 
 function browserStateGuidance(browserState) {
-  if (browserState === 'ai-speaking') return 'AI is speaking. Microphone input is paused to prevent echo capture. Press Interrupt answer if you need to take the floor.';
+  if (browserState === 'ai-speaking') return 'AI is speaking. Microphone input is paused to prevent echo capture. Press Interrupt AI answer if you need to take the floor.';
   if (browserState === 'listening') return 'Listening for your answer. Speak naturally; a five-second pause submits the captured answer.';
   if (browserState === 'user-speaking') return 'You are speaking. Keep going until you finish; the AI will respond after the pause.';
   if (browserState === 'retryable-error') return 'Your transcript stays in the text box. Retry the voice step or edit the text below. Press Ctrl+Enter or Cmd+Enter to submit a typed answer.';
@@ -675,16 +684,9 @@ function browserStateGuidance(browserState) {
   return 'If voice is unavailable, type below. Press Ctrl+Enter or Cmd+Enter to submit a typed answer.';
 }
 
-function syncRepeatSpokenLineButton() {
-  const button = $('#repeatSpokenLine');
-  if (!button) return;
-  button.disabled = !(state.lastSpokenLine && 'speechSynthesis' in window);
-}
-
 function setLastSpokenLine(text = '') {
   state.lastSpokenLine = String(text || '').trim();
   setVoiceCaption(state.lastSpokenLine);
-  syncRepeatSpokenLineButton();
 }
 
 function setVoiceCaption(text = '') {
@@ -783,13 +785,12 @@ function renderBrowserConversationState() {
   if (pauseButton) {
     pauseButton.disabled = !(speaking || listening || paused);
     pauseButton.setAttribute('aria-pressed', String(paused));
-    pauseButton.textContent = paused ? 'Resume voice conversation' : 'Pause voice conversation';
+     pauseButton.textContent = paused ? 'Resume voice conversation' : 'Pause voice conversation';
   }
   if (stopButton) stopButton.disabled = !active;
   if (interruptButton) interruptButton.disabled = !speaking;
   if (retryButton) retryButton.disabled = !(retryable && (state.voiceReviewPending || voiceCoordinator.failedTranscript));
   if (submitButton) submitButton.setAttribute('aria-busy', String(processing || submitButton.disabled));
-  syncRepeatSpokenLineButton();
 }
 
 function transitionBrowserConversationState(nextState, options = {}) {
@@ -1157,6 +1158,10 @@ const voiceCoordinator = {
   interrupt: async ({ bargeIn = false } = {}) => {
     clearVoiceSilenceTimer();
     clearVoiceAutoSubmitTimer();
+    if (bargeIn) {
+      clearVoiceCapture();
+      clearVoiceAnswerDraft();
+    }
     const preserveBrowserRecognition = bargeIn
       && voiceCoordinator.transport === 'browser-fallback'
       && Boolean(state.recognition?.started);
@@ -1176,7 +1181,7 @@ const voiceCoordinator = {
       voiceCoordinator.preserveUserSpeakingUntilNextResult = voiceCoordinator.transport === 'browser-fallback';
       setLiveInputEnabled(true);
       setListeningState(true);
-      if (!preserveBrowserRecognition && voiceCoordinator.transport === 'browser-fallback') startVoiceListening({ preserveCapture: true });
+      if (!preserveBrowserRecognition && voiceCoordinator.transport === 'browser-fallback') startVoiceListening();
       transitionBrowserConversationState('user-speaking', {
         legacyMode: 'listening',
         announcement: 'I can hear you. Your interruption is taking priority.'
@@ -1360,16 +1365,6 @@ function replayFeedback() {
   speak(`${state.lastFeedback.strengths.join(' ')} ${state.lastFeedback.improvement}`);
 }
 
-function repeatLastSpokenLine() {
-  if (!state.lastSpokenLine) {
-    notify('No spoken line is available to repeat yet.');
-    return;
-  }
-  speak(state.lastSpokenLine, {
-    onerror: () => setVoiceAnnouncement('Spoken playback is unavailable, but the caption text is still visible.')
-  });
-}
-
 function setLiveVoiceState(connected) {
   const button = $('#liveVoiceButton');
   button.textContent = connected ? 'Disconnect live AI voice' : 'Connect live AI voice';
@@ -1428,7 +1423,7 @@ function syncVoiceAccessSetup() {
   if (!state.isMobileBrowser) {
     setBrowserAudioNote('Voice access will be requested when you start voice.');
   } else if (!supported) {
-    setBrowserAudioNote('This browser does not provide browser speech recognition. Live AI voice can work when configured; typing remains available.');
+    setBrowserAudioNote('This browser does not provide browser speech recognition. Allow microphone access in the browser site settings, then use live AI voice when configured; typing remains available.');
   } else if (microphoneReady && speechReady) {
     setBrowserAudioNote('Mobile voice access is ready.');
   } else if (state.microphonePermission === 'denied') {
@@ -1653,7 +1648,7 @@ async function startVoiceConversation() {
     // the same WebRTC voice path on mobile instead of selecting a browser by
     // user-agent or SpeechRecognition implementation details.
     if (state.isMobileBrowser || !state.recognition) await loadServiceStatus();
-    const preferRealtime = state.realtimeConfigured && (state.isMobileBrowser || !state.recognition);
+    const preferRealtime = (state.realtimeConfigured || state.isMobileBrowser) && (state.isMobileBrowser || !state.recognition);
     const transport = preferRealtime ? 'realtime' : 'browser-fallback';
     await voiceCoordinator.start({ transport });
   } catch (error) {
@@ -1688,7 +1683,7 @@ function reviewTimestamp(item) {
 function orderedReviewEntries() {
   const transcriptCount = state.transcript.length;
   return [
-    ...state.transcript.map((turn, index) => ({ kind: 'coaching', item: turn, index, sequence: Number(turn.reviewSequence) || index + 1 })),
+    ...state.transcript.map((turn, index) => ({ kind: 'learning', item: turn, index, sequence: Number(turn.reviewSequence) || index + 1 })),
     ...state.materialHistory.map((item, index) => ({ kind: 'material', item, index, sequence: Number(item.reviewSequence) || transcriptCount + index + 1 }))
   ].sort((left, right) => {
     const timestampDifference = reviewTimestamp(right.item) - reviewTimestamp(left.item);
@@ -1715,9 +1710,9 @@ function clearSessionReview() {
 function renderTranscript() {
   const list = $('#transcriptList');
   const reviewMarkup = orderedReviewEntries().map(entry => {
-    if (entry.kind === 'coaching') {
+    if (entry.kind === 'learning') {
       const turn = entry.item;
-    const notes = turn.feedback ? `<details><summary>Coaching notes</summary><div class="transcript-strengths">${(turn.feedback.strengths || []).map(item => `<span>${escapeHtml(item)}</span>`).join('')}</div><p><strong>Try next:</strong> ${escapeHtml(turn.feedback.improvement || 'Review one specific improvement in your next answer.')}</p><details class="transcript-evidence"><summary>Why this feedback?</summary><p>${escapeHtml(turn.feedback.evidence?.join(' ') || 'Your feedback is based on the answer you submitted.')}</p></details></details>` : '';
+    const notes = turn.feedback ? `<details><summary>Learning notes</summary><div class="transcript-strengths">${(turn.feedback.strengths || []).map(item => `<span>${escapeHtml(item)}</span>`).join('')}</div><p><strong>Next learning step:</strong> ${escapeHtml(turn.feedback.improvement || 'Review one specific improvement in your next answer.')}</p><details class="transcript-evidence"><summary>Why this feedback?</summary><p>${escapeHtml(turn.feedback.evidence?.join(' ') || 'Your feedback is based on the answer you submitted.')}</p></details></details>` : '';
     const answerLabel = turn.voice ? 'Your voice answer' : 'Your answer';
       return `<article class="transcript-turn"><div class="transcript-label">Question ${state.transcript.length - entry.index}</div><p class="transcript-question">${escapeHtml(turn.question)}</p><div class="transcript-label">${answerLabel}</div><p>${escapeHtml(turn.answer)}</p>${notes}</article>`;
     }
@@ -1732,7 +1727,7 @@ function renderTranscript() {
 
 function transcriptText() {
   const summaryText = state.summary ? [
-    `Session: ${state.session?.topic || 'deepchat2learn coaching'}`,
+    `Session: ${state.session?.topic || 'deepchat2learn AI for learning'}`,
     `Completed answers: ${state.summary.completedTurns}`,
     `Turn count: ${state.summary.turnCount ?? state.summary.completedTurns ?? 0}`,
     `Learned concepts: ${(state.summary.learnedConcepts || []).join('; ') || 'None recorded'}`,
@@ -2427,10 +2422,11 @@ function stopLiveVoice({ intentional = true, preserveLocalStream = false } = {})
     dataChannel.onmessage = null;
     dataChannel.onclose = null;
   }
-  if (intentional && peer) {
-    peer.ontrack = null;
-    peer.onconnectionstatechange = null;
-  }
+    if (intentional && peer) {
+      peer.ontrack = null;
+      peer.onconnectionstatechange = null;
+      peer.oniceconnectionstatechange = null;
+    }
   dataChannel?.close();
   peer?.close();
   if (!preserveLocalStream) localStream?.getTracks().forEach(track => track.stop());
@@ -2449,6 +2445,24 @@ function handleRealtimeTransportMessage(message) {
     return;
   }
   emitAndApplyVoiceEvent(message.type, message);
+}
+
+function waitForIceGatheringComplete(peer, timeoutMs = REALTIME_ICE_GATHERING_TIMEOUT_MS) {
+  if (!peer || !peer.iceGatheringState || peer.iceGatheringState === 'complete') return Promise.resolve();
+  return new Promise(resolve => {
+    let timer = null;
+    const finish = () => {
+      if (timer) window.clearTimeout(timer);
+      peer.removeEventListener?.('icegatheringstatechange', checkState);
+      resolve();
+    };
+    const checkState = () => {
+      if (peer.iceGatheringState === 'complete') finish();
+    };
+    peer.addEventListener?.('icegatheringstatechange', checkState);
+    timer = window.setTimeout(finish, timeoutMs);
+    checkState();
+  });
 }
 
 async function openRealtimeVoiceTransport({ reconnecting = false, reusableLocalStream = null } = {}) {
@@ -2491,11 +2505,12 @@ async function openRealtimeVoiceTransport({ reconnecting = false, reusableLocalS
       attachRecordingRemoteStream(remoteStream);
     };
     state.peer.onconnectionstatechange = () => {
-      if (['failed', 'disconnected'].includes(state.peer?.connectionState)) {
+      if (['failed', 'disconnected'].includes(state.peer?.connectionState) || ['failed', 'disconnected'].includes(state.peer?.iceConnectionState)) {
         markRecordingRemoteUnavailable();
         emitAndApplyVoiceEvent('recoverable_error', { message: 'Live voice disconnected.' });
       }
     };
+    state.peer.oniceconnectionstatechange = state.peer.onconnectionstatechange;
     state.localStream.getTracks().forEach(track => state.peer.addTrack(track, state.localStream));
     state.dataChannel = state.peer.createDataChannel('oai-events');
     state.dataChannel.onopen = () => {
@@ -2522,7 +2537,11 @@ async function openRealtimeVoiceTransport({ reconnecting = false, reusableLocalS
     state.dataChannel.onclose = () => emitAndApplyVoiceEvent('recoverable_error', { message: 'Live voice connection closed.' });
     const offer = await state.peer.createOffer();
     await state.peer.setLocalDescription(offer);
-    const call = await api('/api/realtime/call', { method: 'POST', body: JSON.stringify({ sessionId: state.session.id, sdp: offer.sdp }) });
+    setVoiceAnnouncement('Preparing the secure live voice connection…');
+    await waitForIceGatheringComplete(state.peer);
+    const localDescription = state.peer.localDescription || offer;
+    if (!localDescription?.sdp) throw new Error('The browser could not prepare a live voice offer. Use Speak answer or type instead.');
+    const call = await api('/api/realtime/call', { method: 'POST', body: JSON.stringify({ sessionId: state.session.id, sdp: localDescription.sdp }) });
     await state.peer.setRemoteDescription({ type: 'answer', sdp: call.sdp });
   } catch (error) {
     stopLiveVoice({ preserveLocalStream: preserveRecordingInput });
@@ -2839,7 +2858,6 @@ $('#voicePauseButton').addEventListener('click', () => {
 });
 $('#voiceStopButton').addEventListener('click', stopVoiceConversation);
 $('#voiceRetryButton').addEventListener('click', () => { retryVoiceAction().catch(notifyError); });
-$('#repeatSpokenLine').addEventListener('click', repeatLastSpokenLine);
 $('#reviewTranscriptToggle').addEventListener('change', event => {
   setTranscriptReviewMessage(event.target.checked
     ? 'Review before sending is on. Finalized voice transcripts will wait here for your approval.'

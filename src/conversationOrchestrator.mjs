@@ -3,6 +3,7 @@ import { answerVoiceTurn as defaultAnswerTurn, buildConversationHistory, isSessi
 import { resolveSkillSelection as defaultResolveSkillSelection } from './skillDetection.mjs';
 import { getDigestStatus as defaultReadDigestStatus } from './sourceKnowledge.mjs';
 import { getInteractionLimits, maxQuestionsForSourceMode } from './config.mjs';
+import { buildLocalTopicDigest } from './topicScope.mjs';
 
 const DEFAULT_INTERACTION_LIMITS = getInteractionLimits();
 const DEFAULT_MAX_ANSWER_CHARACTERS = DEFAULT_INTERACTION_LIMITS.maxAnswerCharacters;
@@ -47,6 +48,27 @@ export function createConversationOrchestrator({
       const session = store.get(created.session.id);
 
       try {
+        if (session.sourceMode === 'source') {
+          session.topicDigest = null;
+        } else {
+          const topicDigestInput = {
+            topic: session.topic,
+            goal: session.goal,
+            difficulty: session.difficulty,
+            feedbackStyle: session.feedbackStyle,
+            sourceMode: session.sourceMode,
+            skillProfile: skillRegistry.get('academic-conversation')
+          };
+          if (typeof coach.topicDigest === 'function') {
+            try {
+              session.topicDigest = await coach.topicDigest(topicDigestInput);
+            } catch {
+              session.topicDigest = buildLocalTopicDigest(topicDigestInput);
+            }
+          } else {
+            session.topicDigest = buildLocalTopicDigest(topicDigestInput);
+          }
+        }
         session.currentQuestion = await coach.initialQuestion({
           ...session,
           skillProfile: skillRegistry.get('academic-conversation')
@@ -275,6 +297,7 @@ async function handlePracticeAnswer({ session, payload, store, coach, skillRegis
     turnIndex: session.turns.length,
     feedbackStyle: session.feedbackStyle,
     sources: session.sources,
+    topicDigest: session.topicDigest || null,
     conversationHistory: buildConversationHistory(session, { limit: 5 }),
     skillProfile: skillRegistry.get('academic-conversation') || skillRegistry.get(session.conversationSkillId || session.activeSkillId)
   });

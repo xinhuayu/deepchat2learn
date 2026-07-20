@@ -98,6 +98,15 @@ test('SQLite preserves voice questions and coaching feedback across reload', asy
   try {
     created = firstStore.createSession({ topic: 'Persist voice review' });
     const session = firstStore.get(created.session.id);
+    session.topicDigest = {
+      mode: 'model',
+      topic: 'Persist voice review',
+      definition: 'A bounded practice topic.',
+      scope: 'Keep the discussion within the topic.',
+      keyConcepts: ['topic'],
+      boundaries: ['No unrelated subject.'],
+      anchorQuestion: 'What is the central idea?'
+    };
     session.voiceTurns.push({
       id: 'voice-review-persist-1',
       sessionId: session.id,
@@ -131,6 +140,7 @@ test('SQLite preserves voice questions and coaching feedback across reload', asy
   const secondStore = new SqliteStore({ path: databasePath, sessionTtlMs: 60_000 });
   try {
     const restored = secondStore.get(created.session.id);
+    assert.equal(restored.topicDigest.scope, 'Keep the discussion within the topic.');
     assert.equal(restored.voiceTurns[0].question, 'What is the study claim?');
     assert.deepEqual(restored.voiceTurns[0].feedback, feedback);
     assert.equal(secondStore.publicSession(restored).review.transcript[0].question, 'What is the study claim?');

@@ -243,19 +243,19 @@ test('session exposes a reviewable transcript and records submitted turns', asyn
   assert.match(app, /state\.transcript\.push\(/);
 });
 
-test('session layout keeps coaching notes at the bottom of the left panel and review beside submit', async () => {
+test('session layout keeps voice, answer, controls, learning feedback, and history in the conversation order', async () => {
   const html = await fs.readFile(new URL('../public/index.html', import.meta.url), 'utf8');
-  assert.match(html, /class="card question-card"[\s\S]*id="microphoneStatus"[\s\S]*id="feedbackCard"/);
-  assert.doesNotMatch(html, /class="response-column"[\s\S]*id="feedbackCard"/);
+  assert.match(html, /class="card question-card"[\s\S]*class="voice-status-message"[\s\S]*id="voiceState"[\s\S]*id="voiceInterruptButton"[\s\S]*id="voiceCaptionText"[\s\S]*<\/article>/);
+  assert.match(html, /id="answerComposer"[\s\S]*id="answerText"[\s\S]*id="submitAnswer"/);
+  assert.match(html, /class="card voice-controls-card"[\s\S]*id="voicePauseButton"[\s\S]*id="voiceStopButton"[\s\S]*id="voiceConversationButton"/);
+  assert.match(html, /id="feedbackCard"[\s\S]*class="card-kicker">AI learning feedback/);
+  assert.match(html, /id="transcriptPanel"[\s\S]*class="card-kicker">Chat history/);
   assert.match(html, /id="answerText"[\s\S]*id="voiceTranscriptReview"[\s\S]*id="submitAnswer"/);
   assert.match(html, /id="answerText"[^>]*rows="5"/);
   assert.match(html, /id="questionLimit"[\s\S]*value="50"(?: selected)?\s*>50/);
   assert.match(html, /id="questionLimit"[\s\S]*value="200">200/);
-  assert.match(html, /id="questionText"[\s\S]*class="voice-primary-block"[\s\S]*id="voiceConversationButton"[\s\S]*class="voice-status-block"[\s\S]*id="voiceState"/);
-  assert.match(html, /class="voice-primary-block"[\s\S]*id="voiceConversationButton"[\s\S]*class="question-actions"[\s\S]*id="listenButton"/);
-  assert.doesNotMatch(html, /class="question-actions"[\s\S]*id="voiceConversationButton"/);
-  assert.match(html, /class="voice-toolbar"[\s\S]*id="voicePauseButton"[\s\S]*id="voiceStopButton"/);
-  assert.doesNotMatch(html, /id="voiceStatus"/);
+  assert.match(html, /id="voiceInterruptButton"[^>]*aria-label="Interrupt AI answer">Interrupt AI answer/);
+  assert.match(html, /class="voice-toolbar"[\s\S]*id="voicePauseButton"[\s\S]*id="voiceStopButton"[\s\S]*<\/div>[\s\S]*id="voiceConversationButton"/);
   assert.match(html, /id="voiceState"[^>]*aria-live="polite"/);
 });
 
@@ -277,7 +277,8 @@ test('coaching notes and chat history remain visible in a compact layout', async
   assert.doesNotMatch(app, /voice-feedback-hidden/);
   assert.match(app, /turn\.voice/);
   assert.match(html, /id="voiceTranscriptReviewText"/);
-  assert.match(css, /\.question-card > \.feedback-card\s*\{[^}]*padding:\s*16px/);
+  assert.match(css, /\.session-grid\s*\{[^}]*grid-template-areas:\s*"voice answer" "controls feedback" "history history"/);
+  assert.match(css, /\.feedback-card\s*\{[^}]*grid-area:\s*feedback/);
   assert.match(css, /\.transcript-panel\s*\{[^}]*padding:\s*18px/);
   assert.match(css, /\.transcript-turn\s*\{[^}]*padding:\s*10px 12px/);
   assert.match(css, /\.secondary\[aria-pressed="true"\]\s*\{[^}]*background:\s*var\(--blue-dark\)/);
@@ -669,14 +670,14 @@ test('digest evidence exposes its text locator when available', async () => {
   assert.match(app, /digest-locator/);
 });
 
-test('setup explains which coaching services are configured', async () => {
+test('setup explains which AI-for-learning services are configured', async () => {
   const app = await fs.readFile(new URL('../public/app.js', import.meta.url), 'utf8');
   const html = await fs.readFile(new URL('../public/index.html', import.meta.url), 'utf8');
   assert.match(html, /id="serviceStatus"/);
   assert.match(app, /async function loadServiceStatus\(\)/);
   assert.match(app, /if \(!response\.ok\) throw new Error\('Service status unavailable'\)/);
-  assert.match(app, /Local demo coach is active/);
-  assert.match(app, /AI text coaching is configured/);
+  assert.match(app, /Local AI-for-learning mode is active/);
+  assert.match(app, /AI-for-learning text service is configured/);
   assert.match(app, /connection\?\.textModel/);
   assert.match(app, /realtimeVoice/);
 });
@@ -697,15 +698,15 @@ test('brand image is used as a compact project icon', async () => {
   assert.match(css, /\.brand-logo\s*\{[^}]*width:\s*54px[^}]*height:\s*30px[^}]*object-fit:\s*contain/s);
 });
 
-test('landing page uses the deep-learning conversation copy', async () => {
+test('landing page uses the AI-for-learning conversation copy', async () => {
   const html = await fs.readFile(new URL('../public/index.html', import.meta.url), 'utf8');
   const app = await fs.readFile(new URL('../public/app.js', import.meta.url), 'utf8');
-  assert.match(html, /A vibrant place to think clearly/);
-  assert.match(html, /Turn Hot Conversations into Deep Learning/);
+  assert.match(html, /AI for learning through deep conversation/);
+  assert.match(html, /Deep conversations for better learning/);
   assert.match(html, /What would you like to discuss today\?[\s\S]*?\(required\)/i);
   assert.doesNotMatch(html, /Choose a topic, answer one question at a time/);
   assert.match(html, /Adjust conversation options/);
-  assert.match(html, /Supply document or notes and ask questions about them/);
+  assert.match(html, /Share a paper or notes and explore them with AI/);
   assert.match(html, /Start conversation/);
   assert.match(html, /embedded(?:-figure| figures)/i);
   assert.match(app, /Start conversation <span aria-hidden="true">→<\/span>/);
@@ -865,7 +866,7 @@ test('voice readiness messaging distinguishes browser audio from microphone perm
   assert.match(app, /function detectMobileBrowser\(\)/);
   assert.match(app, /function syncVoiceAccessSetup\(\)/);
   assert.match(app, /This browser does not provide browser speech recognition/);
-  assert.match(app, /Live AI voice can work when configured/);
+  assert.match(app, /Allow microphone access in the browser site settings/);
   assert.match(html, /id="voicePermissionSetup"[^>]*class="voice-permission-setup hidden"/);
   assert.match(html, /id="prepareVoiceButton"/);
   assert.match(app, /navigator\.permissions\.query\(\{ name: 'microphone' \}\)/);
@@ -879,12 +880,21 @@ test('voice readiness messaging distinguishes browser audio from microphone perm
 test('mobile voice chooses configured Realtime when browser speech recognition is unavailable', async () => {
   const app = await fs.readFile(new URL('../public/app.js', import.meta.url), 'utf8');
   assert.match(app, /state\.realtimeConfigured = connection\?\.realtimeVoice === 'configured'/);
-  assert.match(app, /state\.realtimeConfigured && \(state\.isMobileBrowser \|\| !state\.recognition\)/);
+  assert.match(app, /\(state\.realtimeConfigured \|\| state\.isMobileBrowser\) && \(state\.isMobileBrowser \|\| !state\.recognition\)/);
   assert.match(app, /const transport = preferRealtime \? 'realtime' : 'browser-fallback'/);
   assert.match(app, /const microphoneReady = await requestMicrophoneAccess\(\);\s*const speechReady = microphoneReady && await primeBrowserSpeechRecognition\(\)/);
   assert.match(app, /playsInline = true/);
   assert.match(app, /tryPlayRemoteAudio\(\)/);
   assert.match(app, /event\.streams\?\.\[0\]/);
+});
+
+test('realtime voice waits for cross-browser ICE gathering before sending the offer', async () => {
+  const app = await fs.readFile(new URL('../public/app.js', import.meta.url), 'utf8');
+  assert.match(app, /function waitForIceGatheringComplete\(peer/);
+  assert.match(app, /await waitForIceGatheringComplete\(state\.peer\)/);
+  assert.match(app, /const localDescription = state\.peer\.localDescription \|\| offer/);
+  assert.match(app, /sdp: localDescription\.sdp/);
+  assert.match(app, /peer\.oniceconnectionstatechange/);
 });
 
 test('voice and typed materials UI expose source-aware state, review, and recovery controls', async () => {
@@ -970,19 +980,19 @@ test('voice accessibility messaging includes digest readiness, microphone denial
   assert.match(app, /digest/i);
 });
 
-test('voice accessibility UI separates visible state, live announcements, captions, repeat controls, and typed fallback guidance', async () => {
+test('voice accessibility UI separates visible state, live announcements, captions, and typed fallback guidance', async () => {
   const app = await fs.readFile(new URL('../public/app.js', import.meta.url), 'utf8');
   const html = await fs.readFile(new URL('../public/index.html', import.meta.url), 'utf8');
   const css = await fs.readFile(new URL('../public/styles.css', import.meta.url), 'utf8');
   assert.match(html, /id="voiceStateLabel"/);
   assert.match(html, /id="voiceLiveRegion"[^>]*aria-live="polite"/);
   assert.match(html, /id="voiceCaptionText"[^>]*aria-live="polite"/);
-  assert.match(html, /id="repeatSpokenLine"[^>]*type="button"[^>]*disabled/);
+  assert.doesNotMatch(html, /id="repeatSpokenLine"/);
   assert.match(html, /id="voiceTranscriptReviewText"/);
   assert.match(html, /Ctrl\+Enter or Cmd\+Enter/);
   assert.match(app, /voiceStateLabel/);
   assert.match(app, /voiceLiveRegion/);
-  assert.match(app, /repeatSpokenLine/);
+  assert.doesNotMatch(app, /repeatSpokenLine/);
   assert.match(app, /setAttribute\('aria-label', `Voice state:/);
   assert.match(app, /function focusTypedFallback\(/);
   assert.match(css, /\.sr-only\s*\{/);

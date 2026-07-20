@@ -1,4 +1,5 @@
 import { locateEvidence } from './evidence.mjs';
+import { buildLocalTopicDigest } from './topicScope.mjs';
 
 function clamp(value) {
   return Math.max(1, Math.min(5, value));
@@ -30,6 +31,10 @@ function buildAcademicResponse({ topic, answer, assessmentLabel }) {
 
 export function createCoach() {
   return {
+    topicDigest({ topic, goal = 'clarity' }) {
+      return buildLocalTopicDigest({ topic, goal });
+    },
+
     initialQuestion({ topic, sourceMode = 'none', sources = [], sourceDigest = null }) {
       if (sourceMode === 'source' || sources.length || sourceDigest) return 'What is this paper or material mainly about?';
       return `What is the main research question or idea you want to explore about "${topic}"?`;
@@ -156,10 +161,18 @@ export function createCoach() {
       return `What is the main idea in “${source.name}”, and what evidence supports it?`;
     },
 
-    generalAnswer(question) {
+    generalAnswer(questionInput, { context = null } = {}) {
+      const question = typeof questionInput === 'string' ? questionInput : String(questionInput?.question || '').trim();
+      const topic = String(context?.topic || '').trim();
+      const scope = String(context?.topicDigest?.scope || '').trim();
+      const topicClause = scope
+        ? ` Keep the answer within this scope: ${scope}`
+        : topic
+          ? ` Keep the answer connected to ${topic}.`
+          : '';
       return {
         mode: 'general',
-        answer: `Here is a starting point for thinking about “${question}”: define the central idea, connect it to an example, and identify what would change your conclusion.`,
+        answer: `Here is a starting point for thinking about “${question}”: define the central idea, connect it to an example, and identify what would change your conclusion.${topicClause}`,
         sourceGroundedClaims: [],
         additionalContext: [{ claim: 'This response comes from general coaching context, not supplied materials.', label: 'Additional context' }],
         unsupportedOrUnresolved: [],

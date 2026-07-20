@@ -88,6 +88,23 @@ test('model gateway routes known text tasks deterministically and rejects unknow
   );
 });
 
+test('model gateway routes topic digestion separately from question generation', async () => {
+  let received = null;
+  const gateway = createModelGateway({
+    textCoach: {
+      async topicDigest(input) {
+        received = input;
+        return { mode: 'model', topic: input.topic, definition: 'A definition.', scope: 'A bounded scope.', keyConcepts: ['concept'], boundaries: ['Stay on topic.'], anchorQuestion: 'What matters most?' };
+      }
+    }
+  });
+
+  const result = await gateway.runTextTask({ task: 'topic_digest', input: { topic: 'Memory', goal: 'clarity' } });
+
+  assert.equal(result.scope, 'A bounded scope.');
+  assert.deepEqual(received, { topic: 'Memory', goal: 'clarity' });
+});
+
 test('model gateway retries bounded transient failures and stops retrying validation failures', async () => {
   let transientAttempts = 0;
   const transientGateway = createModelGateway({
@@ -360,6 +377,17 @@ test('server uses the model gateway on direct general-answer, digest, and realti
         if (task === 'question' && input?.mode === 'initial') {
           return 'Gateway opening question?';
         }
+        if (task === 'topic_digest') {
+          return {
+            mode: 'model',
+            topic: input.topic,
+            definition: 'A bounded topic.',
+            scope: 'Stay with the stated topic.',
+            keyConcepts: ['topic'],
+            boundaries: ['Do not drift.'],
+            anchorQuestion: 'What matters most?'
+          };
+        }
         if (task === 'general_answer') {
           return {
             mode: 'general',
@@ -410,7 +438,8 @@ test('server uses the model gateway on direct general-answer, digest, and realti
     });
     assert.equal(createdResponse.status, 201);
     const created = await createdResponse.json();
-    assert.equal(gatewayCalls[0].task, 'question');
+    assert.equal(gatewayCalls[0].task, 'topic_digest');
+    assert.equal(gatewayCalls[1].task, 'question');
 
     const answerResponse = await fetch(`${base}/api/sessions/${created.session.id}/questions`, {
       method: 'POST',
@@ -449,7 +478,7 @@ test('server uses the model gateway on direct general-answer, digest, and realti
 
     assert.deepEqual(
       gatewayCalls.map(call => call.task),
-      ['question', 'general_answer', 'source_digest', 'source_digest', 'realtime_call']
+       ['topic_digest', 'question', 'general_answer', 'source_digest', 'source_digest', 'realtime_call']
     );
   } finally {
     await new Promise(resolve => server.close(resolve));

@@ -988,6 +988,15 @@ test('punctuation-free spoken questions use the general-answer path instead of c
     sourceMode: 'none',
     currentQuestion: 'What helps people remember information?',
     questionLimit: 5,
+    topicDigest: {
+      mode: 'model',
+      topic: 'memory science',
+      definition: 'How memory forms and changes.',
+      scope: 'Stay with memory mechanisms and evidence.',
+      keyConcepts: ['memory', 'consolidation'],
+      boundaries: ['Do not switch to unrelated topics.'],
+      anchorQuestion: 'What is the key mechanism?'
+    },
     turns: [],
     voiceTurns: [],
     voiceIdempotency: new Map(),
@@ -1004,8 +1013,10 @@ test('punctuation-free spoken questions use the general-answer path instead of c
         coachingCalls += 1;
         throw new Error('A spoken question must not be evaluated as an answer.');
       },
-      async generalAnswer() {
+      async generalAnswer(_question, { context } = {}) {
         generalAnswerCalls += 1;
+        assert.equal(context.topic, 'memory science');
+        assert.equal(context.topicDigest.scope, 'Stay with memory mechanisms and evidence.');
         return {
           answer: 'Memory consolidation is the process of stabilizing a new memory over time.',
           additionalContext: [],

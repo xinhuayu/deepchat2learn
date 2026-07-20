@@ -12,21 +12,25 @@
 
 The release does **not** claim readiness for sensitive, high-volume, or public multi-user deployment. Authentication, user-level authorization, deployment monitoring, production retention policy, and physical-device voice QA remain future work.
 
+### Follow-up regression maintenance — 20 July 2026
+
+The feature-freeze contract remains unchanged, but the practice continuity path received a regression fix after the initial baseline audit. Practice sessions now create a concise structured topic-scope digest before the opening question, persist it in the session, and carry it through initial-question generation, follow-up questions, answer evaluation, and general spoken-question handling. A deterministic local scope is used when the remote scope request is unavailable or invalid. This directly addresses multi-round drift caused by vague learner contributions without changing the five-second voice-finalization boundary, source-conversation context contract, or user-facing session controls.
+
 ## Frozen learner contract
 
 - Practice and source sessions start with a focused question and preserve session isolation, budgets, retention choice, and review records.
-- Every live prompt carries the topic. Practice uses up to five compact recent exchanges; source conversation uses the prepared digest/gist, bounded evidence context, and three recent exchanges rather than repeatedly sending the original material.
-- A normal completed answer receives concise, response-linked coaching and one focused next question. Direct questions and move-on requests are routed separately.
+- Every live prompt carries the topic. Practice also carries its persisted scope digest and up to five compact recent exchanges; source conversation uses the prepared digest/gist, bounded evidence context, and three recent exchanges rather than repeatedly sending the original material.
+- A normal completed answer receives concise, response-linked learning feedback and one focused next question. Direct questions and move-on requests are routed separately.
 - Phrases such as “end the session,” “finish the conversation,” “wrap up,” and “I am done” receive a short closure and proceed directly to the summary without another question.
 - Voice processing states are visibly highlighted; AI speech pauses microphone capture, interruption is available, typed interaction remains usable, and five seconds of final silence remains the submission boundary.
-- The local deterministic coach remains available when the provider is absent, slow, malformed, or otherwise unable to complete a text turn.
+- The local deterministic AI-for-learning fallback remains available when the provider is absent, slow, malformed, or otherwise unable to complete a text turn.
 - Source claims use prepared local evidence and validation; raw source material is kept server-local after digestion for ordinary live source turns.
 
 ## Independent audit evidence
 
 | Audit area | Evidence recorded for this baseline |
 |---|---|
-| Syntax and regression suite | `npm run verify` completed with **448 tests total: 445 passed, 0 failed, 3 optional environment-specific skips**. |
+| Syntax and regression suite | The follow-up `npm run verify` completed with **452 tests total: 449 passed, 0 failed, 3 optional environment-specific skips**. |
 | Static package hygiene | No distributed credential pattern, local-machine path, database, recording, log, cache, uploaded source, `node_modules`, or inherited Git history was found in the submission content. `.env.example` remained as the only portable configuration template. |
 | Configuration contracts | Environment-template parity and local Markdown-link checks passed. Documented timing, token, character, source, and request-size limits matched the configuration surface. |
 | Local browser flow | In an isolated no-key session, the landing page created a practice session, showed the active voice-processing state, accepted a typed answer, produced concise feedback and a next question, retained the turn in review history, and ended at the session summary. Browser-console warnings and errors were absent. |

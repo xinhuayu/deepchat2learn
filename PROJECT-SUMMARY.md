@@ -4,7 +4,7 @@
 
 > **Release status:** `v0.1.0` feature-freeze baseline for controlled demonstrations and GitHub submission; not a public-production 1.0 release. The release gate and independent audit record are in [docs/RELEASE-BASELINE-v0.1.0.md](docs/RELEASE-BASELINE-v0.1.0.md).
 
-`deepchat2learn` is a browser-based coaching application for practicing explanations and discussing supplied source materials. It runs locally with a deterministic coach and can optionally use a server-side text model, OpenAI Realtime voice, live transcription, and SQLite persistence.
+`deepchat2learn` is a browser-based AI-for-learning application for deep conversations, explanation practice, and discussion of supplied source materials. It runs locally with a deterministic learning fallback and can optionally use a server-side text model, OpenAI Realtime voice, live transcription, and SQLite persistence.
 
 ## Current user flow
 
@@ -18,11 +18,12 @@ The conversation page visibly highlights the active voice-processing state. AI s
 
 ## Reliability and model behavior
 
-- Text coaching has a 45-second default request deadline and a deterministic local fallback, so a slow remote response does not turn into a failed conversation turn.
+- AI-for-learning text requests have a 45-second default deadline and a deterministic local fallback, so a slow remote response does not turn into a failed learning turn.
 - Source digestion has its own 180-second default deadline and a 12,000-token configurable structured-response allowance (`OPENAI_SOURCE_DIGEST_MAX_OUTPUT_TOKENS`), reducing `max_output_tokens` incomplete-digest failures for larger papers.
 - Voice and answer limits include deliberate headroom: transcripts and answers default to 13,200 characters, questions to 2,200 characters, request bodies to 28 MB, and session model budget to 132,000 tokens.
 - The five-second voice silence settings remain unchanged: `VOICE_AUTO_SUBMIT_DELAY_MS=5000` and `VOICE_REALTIME_SILENCE_MS=5000`.
-- Practice prompts retain the topic and up to five compact recent exchanges. After a source is digested, source prompts use only the topic, prepared digest/gist, compact exact-evidence options, and the three latest exchanges; raw documents remain local for evidence validation and fallbacks. Spoken coaching is constrained to one brief, concrete action before the next question.
+- Practice sessions create a compact topic-scope digest before the opening question. It records a definition, scope, key concepts, boundaries, and an anchor question, then persists with the session and is supplied to every practice question, evaluation, and general spoken-question request. A local deterministic scope is used if the remote scope call fails, so short or vague contributions remain connected to the declared topic.
+- Practice prompts retain the active topic, scope digest, and up to five compact recent exchanges. After a source is digested, source prompts use only the topic, prepared digest/gist, compact exact-evidence options, and the three latest exchanges; raw documents remain local for evidence validation and fallbacks. Spoken learning guidance is constrained to one brief, concrete action before the next question.
 
 ## Source materials and records
 
@@ -32,7 +33,7 @@ Session summaries retain recurring strengths, gaps, and source-use information. 
 
 ## Configuration and verification
 
-Copy `.env.example` to a private `.env` only for provider-backed testing. The example contains no credentials or machine-specific Python path. Leave the API key blank to use the local demo coach. Python is optional; Node-only source extraction remains supported.
+Copy `.env.example` to a private `.env` only for provider-backed testing. The example contains no credentials or machine-specific Python path. Leave the API key blank to use the local AI-for-learning fallback. Python is optional; Node-only source extraction remains supported.
 
 Run the complete syntax and regression suite from this folder:
 

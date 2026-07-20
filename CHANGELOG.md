@@ -2,12 +2,19 @@
 
 All notable package milestones are recorded here. This project follows a controlled feature-freeze approach rather than treating a GitHub submission as a public-production release.
 
+## [Unreleased maintenance] - 2026-07-20
+
+- Adds a practice-session topic-scope digest before the opening question. The digest keeps a concise definition, scope, key concepts, boundaries, and anchor question available throughout the session.
+- Persists the normalized scope in both in-memory and SQLite sessions and supplies it to initial questions, follow-up generation, answer evaluation, and general spoken-question handling.
+- Uses a deterministic local scope when the remote scope request is unavailable or invalid, preserving the learning flow while keeping vague answers inside the declared topic.
+- Adds regression coverage for scope creation, persistence, gateway routing, prompt inclusion, and voice forwarding. The current suite reports 449 passing tests and 3 optional skips.
+
 ## [0.1.0] - 2026-07-19
 
 ### Feature-freeze baseline
 
 - Freezes the verified practice and source-conversation MVP for controlled demonstrations and GitHub submission.
-- Preserves the bounded learning flow: topic-aware questions, concise coaching, ending-language routing, newest-first review records, source grounding, local fallback, and optional browser or Realtime voice paths.
+- Preserves the bounded AI-for-learning flow: topic-aware questions, concise learning guidance, ending-language routing, newest-first review records, source grounding, local fallback, and optional browser or Realtime voice paths.
 - Preserves the operational safeguards: five-second voice finalization, 45-second interactive model deadline, 180-second source-digest deadline, 12,000-token digest allowance, bounded recent history, source-gist reuse, and session/token guardrails.
 
 ### Audit and documentation
