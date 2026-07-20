@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="A focused AI speaking coach for practice and source-based questions." />
+    <title>deepchat2learn — AI Coaching</title>
+    <link rel="icon" type="image/png" href="/brand-logo.png" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <a class="brand" href="/" aria-label="deepchat2learn home"><img class="brand-logo" src="/brand-logo.png" alt="" aria-hidden="true" /> deepchat2learn</a>
+        <span class="topbar-note">Practice ideas out loud</span>
+      </header>
+
+      <section id="setupView" class="view">
+        <div class="hero-copy">
+          <p class="eyebrow">A vibrant place to think clearly</p>
+          <h1>Turn Hot Conversations into Deep Learning</h1>
+        </div>
+        <section id="voicePermissionSetup" class="voice-permission-setup hidden" aria-hidden="true" aria-labelledby="voiceAccessTitle">
+          <div class="voice-permission-copy">
+            <strong id="voiceAccessTitle">Prepare mobile voice access</strong>
+            <p id="browser-audio-note" class="privacy-note" role="status" aria-live="polite">Voice access will be checked when needed.</p>
+          </div>
+          <button id="prepareVoiceButton" class="secondary" type="button">Enable voice access</button>
+        </section>
+        <form id="setupForm" class="card setup-card">
+          <label for="topic">What would you like to discuss today? <span class="muted">(required)</span></label>
+          <textarea id="topic" name="topic" rows="2" required placeholder="For example: Explain my research clearly to a non-specialist"></textarea>
+          <div class="mode-grid" role="group" aria-label="Coaching mode">
+            <label class="mode-option selected"><input type="radio" name="mode" value="practice" checked /><span><strong>Practice speaking</strong><small>Answer questions and improve your delivery.</small></span></label>
+            <label class="mode-option"><input type="radio" name="mode" value="materials" /><span><strong>Ask about materials</strong><small>Supply document or notes and ask questions about them.</small></span></label>
+          </div>
+          <details class="advanced">
+            <summary>Adjust conversation options</summary>
+            <div class="advanced-grid">
+              <label>Goal<select id="goal"><option value="clarity">Clarity</option><option value="structure">Structure</option><option value="specificity">Specificity</option></select></label>
+              <label>Difficulty<select id="difficulty"><option value="beginner">Beginner</option><option value="intermediate">Intermediate</option><option value="advanced">Advanced</option></select></label>
+              <label>Questions<select id="questionLimit"><option value="3">3</option><option value="5">5</option><option value="10">10</option><option value="25">25</option><option value="50" selected>50</option><option value="100">100</option><option value="200">200</option></select></label>
+              <label>Feedback style<select id="feedbackStyle"><option value="supportive">Supportive</option><option value="direct">Direct</option><option value="socratic">Socratic</option></select></label>
+              <label>Keep transcripts and materials<select id="retentionMode"><option value="session">Only for this session</option><option value="until_deleted">Until I delete them</option><option value="short_expiry">Short expiry</option></select></label>
+            </div>
+            <p id="questionLimitHelp" class="help">Practice voice sessions allow up to 50 rounds; source conversations allow up to 200.</p>
+            <p class="help">Voice conversation audio is not recorded by default. If you enable local recording, it stays on this device until you download or discard it.</p>
+          </details>
+          <div id="sourceSetup" class="source-setup hidden">
+            <label for="sourceText">Add a paper excerpt or notes <span class="muted">(optional)</span></label>
+            <label for="sourceFile">Upload a source file <span class="muted">(optional)</span></label>
+            <input id="sourceFile" type="file" accept=".pdf,.docx,.txt,.md,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown" />
+            <label for="skillProfile">Digest and review lens <span class="muted">(optional)</span></label>
+            <select id="skillProfile"><option value="auto">Automatic research lens</option><option value="academic-research">Academic research digest</option><option value="none">No specialized review lens</option><option value="epi-research">Epidemiology methods critique (epi-research)</option></select>
+            <p class="help">The review lens digests your materials. Live source conversations use the built-in academic conversation guide and keep source evidence separate from general knowledge.</p>
+            <label for="sourceName">Source name <span class="muted">(optional)</span></label>
+            <input id="sourceName" placeholder="Source name, e.g. seminar-notes.txt" />
+            <textarea id="sourceText" rows="5" placeholder="Paste the material you want to ask about…"></textarea>
+            <p id="sourceStatus" class="help" role="status" aria-live="polite">Research PDFs work without Python and include page-aware text, table rows, captions, embedded-figure metadata, and safely extractable figure bytes when available. Optional pdfplumber can improve table and caption extraction; OCR and visual figure interpretation are not included. Voice conversation audio is not recorded by default; optional local recordings stay on this device and are never uploaded. Materials, transcripts, digests, and citations follow the retention setting you choose above.</p>
+          </div>
+          <button class="primary" type="submit">Start conversation <span aria-hidden="true">→</span></button>
+          <p class="privacy-note">Voice audio is not recorded by default. You can enable local recording after starting a voice conversation, or answer by typing if your microphone is unavailable.</p>
+          <p id="serviceStatus" class="privacy-note status-text" role="status" aria-live="polite">Checking coaching services…</p>
+        </form>
+      </section>
+
+      <section id="sessionView" class="view hidden">
+        <div class="session-head">
+          <div><p class="eyebrow">Your session</p><h2 id="sessionTopic"></h2></div>
+          <button id="endSession" class="quiet-button" type="button">End session</button>
+        </div>
+        <div class="progress-row"><span id="progressLabel">Question 1 of 3</span><div class="progress-track"><div id="progressBar" class="progress-bar" role="progressbar" aria-label="Session progress" aria-valuemin="1" aria-valuemax="3" aria-valuenow="1"></div></div></div>
+        <div class="session-grid">
+          <article class="card question-card">
+            <div class="card-kicker">Your next question</div>
+            <h3 id="questionText" aria-live="polite" aria-atomic="true"></h3>
+            <div class="voice-primary-block">
+              <button id="voiceConversationButton" class="secondary" type="button" aria-pressed="false">Start voice conversation</button>
+              <div class="voice-status-block" role="group" aria-labelledby="voiceStateLabel" aria-describedby="voiceState voiceStateGuidance voiceCaptionText">
+                <div class="voice-status-head">
+                  <p id="voiceStateLabel" class="voice-state-label">Voice state: Idle</p>
+                  <button id="repeatSpokenLine" class="quiet-button" type="button" disabled>Repeat last spoken line</button>
+                </div>
+                <p id="voiceState" class="status-text" role="status" aria-live="polite">Voice idle. You can still type below.</p>
+                <p id="voiceStateGuidance" class="help">If voice is unavailable, type below. Press Ctrl+Enter or Cmd+Enter to submit a typed answer.</p>
+                <p id="voiceCaptionText" class="voice-caption" aria-live="polite">Latest spoken line captions will appear here.</p>
+                <p id="voiceLiveRegion" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></p>
+              </div>
+            </div>
+            <div class="question-actions"><button id="listenButton" class="secondary" type="button" aria-pressed="false">◎ Speak answer</button><button id="liveVoiceButton" class="secondary" type="button" aria-pressed="false">◉ Connect live AI voice</button><button id="sourceQuestionButton" class="secondary hidden" type="button">Ask from my materials</button></div>
+            <div class="voice-toolbar" role="group" aria-label="Voice conversation controls">
+              <button id="voicePauseButton" class="secondary" type="button" aria-pressed="false" aria-label="Pause voice conversation">Pause voice</button>
+              <button id="voiceStopButton" class="secondary" type="button" aria-label="Stop voice conversation">Stop voice</button>
+              <button id="voiceInterruptButton" class="secondary" type="button" aria-label="Interrupt spoken answer">Interrupt answer</button>
+              <button id="voiceRetryButton" class="secondary" type="button" aria-label="Retry the last voice step">Retry voice step</button>
+            </div>
+            <p id="microphoneStatus" class="microphone-status unknown" role="status" aria-live="polite">Microphone status: not checked yet. Start voice conversation to check access.</p>
+            <section class="recording-panel" role="group" aria-label="Local recording controls">
+              <div class="recording-opt-in">
+                <button id="recordConversationButton" class="secondary" type="button" aria-pressed="false">Record conversation</button>
+                <p class="recording-note">Audio stays on this device and is not uploaded.</p>
+              </div>
+              <div class="recording-status-row">
+                <p id="recordingStatus" class="status-text" role="status" aria-live="polite">Recording unavailable until you start a voice conversation.</p>
+                <p id="recordingTimer" class="status-text recording-timer" role="timer" aria-live="polite">00:00</p>
+              </div>
+              <p id="recordingMode" class="recording-mode" aria-live="polite">Local capture states include unavailable, microphone-only, complete-conversation, limit reached, and discarded.</p>
+              <div class="recording-actions">
+                <button id="stopRecordingButton" class="secondary" type="button" disabled>Stop recording</button>
+                <button id="discardRecordingButton" class="secondary" type="button" disabled>Discard recording</button>
+                <button id="downloadRecordingButton" class="secondary" type="button" disabled>Download recording</button>
+              </div>
+              <p class="recording-help">Microphone only keeps your microphone input. Complete conversation appears when your microphone and live AI audio can be mixed locally. If a local limit is reached, the recording stops and stays ready to download until it is discarded.</p>
+            </section>
+            <aside id="feedbackCard" class="card feedback-card" aria-live="polite">
+              <div class="card-kicker">Coaching notes</div>
+              <div id="feedbackEmpty" class="empty-state">Your typed-answer feedback will appear here.</div>
+              <div id="feedbackContent" class="hidden">
+                <h3 id="feedbackTitle">Good start</h3>
+                <div id="scoreList" class="score-list" aria-label="Answer rubric scores"></div>
+                <div class="academic-block">
+                  <span class="label">Academic relevance</span>
+                  <p id="academicAssessment"></p>
+                  <p id="academicResponse"></p>
+                </div>
+                <div id="strengths"></div>
+                <div class="improvement-block"><span class="label">Try next</span><p id="improvement"></p></div>
+                <details class="evidence"><summary>Why this feedback?</summary><p id="evidenceText"></p></details>
+                <div class="example-block"><span class="label">Example</span><p id="exampleAnswer"></p></div>
+                <button id="replayFeedback" class="secondary" type="button" disabled>Replay feedback aloud</button>
+              </div>
+            </aside>
+          </article>
+          <div class="response-column">
+            <section id="answerComposer" class="card answer-card">
+              <div class="card-kicker">Your answer</div>
+              <label for="answerText" class="answer-label">Speak or type your answer</label>
+              <textarea id="answerText" rows="5" placeholder="Type an answer, or use voice input…"></textarea>
+              <div id="voiceTranscriptReview" class="voice-review" aria-live="polite" aria-atomic="true">
+                <label class="voice-review-toggle" for="reviewTranscriptToggle"><input id="reviewTranscriptToggle" type="checkbox" /> Review before sending</label>
+                <p id="voiceTranscriptReviewText" class="status-text">Voice transcripts will appear here before sending when review before sending is on.</p>
+              </div>
+              <button id="submitAnswer" class="primary" type="button">Submit typed answer <span aria-hidden="true">→</span></button>
+            </section>
+            <section id="transcriptPanel" class="card transcript-panel hidden" aria-labelledby="transcriptHeading">
+              <div class="card-kicker">Chat history</div>
+              <h3 id="transcriptHeading">Your questions and answers</h3>
+              <div class="transcript-actions"><button id="copyTranscript" class="secondary" type="button">Copy session review</button><span id="transcriptStatus" class="status-text" role="status"></span></div>
+              <div id="transcriptList" class="transcript-list" aria-live="polite" aria-atomic="false"></div>
+            </section>
+          </div>
+        </div>
+        <section id="materialsPanel" class="card materials-panel hidden">
+          <div class="panel-heading"><div><div class="card-kicker">Your materials</div><h3>Ask a question about what you shared</h3><p id="skillProfileStatus" class="help" role="status" aria-live="polite">Review lens will be selected from your topic and materials.</p></div><span id="sourceBadge" class="badge">Source grounded</span></div>
+          <div id="sourceList" class="source-list" aria-live="polite" aria-atomic="true"></div>
+          <div id="sourceDigest" class="digest-box" aria-live="polite" aria-atomic="true"></div>
+          <p id="sourceDigestStatus" class="help" role="status" aria-live="polite">Add materials to prepare source-grounded answers.</p>
+          <div class="source-add-row"><input id="additionalSourceFile" type="file" accept=".pdf,.docx,.txt,.md,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown" aria-label="Add a source file" /><button id="addSourceButton" class="secondary" type="button">Add source</button></div>
+          <div class="source-paste-row"><label for="additionalSourceName">Pasted source name <span class="muted">(optional)</span></label><input id="additionalSourceName" placeholder="Source name, e.g. article-notes.txt" /><label for="additionalSourceText">Paste another excerpt <span class="muted">(optional)</span></label><textarea id="additionalSourceText" rows="3" placeholder="Paste a second paper excerpt or set of notes…"></textarea></div>
+          <p id="additionalSourceStatus" class="help" role="status" aria-live="polite"></p>
+          <form id="materialQuestionForm" class="ask-row"><select id="materialMode" aria-label="Answer source"><option value="source">From my materials</option><option value="general">General context</option></select><input id="materialQuestion" aria-label="Ask about your materials" placeholder="What is the main argument?" /><button id="askQuestion" class="secondary" type="submit">Ask</button></form>
+          <div id="materialAnswer" class="answer-result hidden" aria-live="polite" aria-atomic="true">
+            <div id="knowledgeLayers" class="knowledge-layers" aria-label="Knowledge layers used"></div>
+            <div id="voiceCitations" class="voice-citations"></div>
+          </div>
+        </section>
+      </section>
+
+      <section id="summaryView" class="view hidden" tabindex="-1">
+        <div class="hero-copy compact"><p class="eyebrow">Session complete</p><h1>Keep the useful part.</h1><p class="lede">Here is one practical next step based on your answers.</p></div>
+        <div class="card summary-card"><div id="summaryContent"></div><div class="summary-actions"><button id="downloadTranscript" class="secondary" type="button">Download session review</button><button id="downloadRecordingSummaryButton" class="secondary" type="button" disabled>Download audio recording</button><span id="summaryStatus" class="status-text" role="status"></span></div><button id="newSession" class="primary" type="button">Practice another topic <span aria-hidden="true">→</span></button></div>
+        <button id="deleteData" class="danger-button" type="button">Delete this session’s data</button>
+      </section>
+
+      <div id="globalError" class="toast hidden" role="alert"></div>
+    </main>
+    <script src="/audioRecording.js"></script>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

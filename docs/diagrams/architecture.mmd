@@ -1,0 +1,14 @@
+flowchart LR
+  learner["Learner in browser"] --> ui["UI: typed and voice controls"]
+  ui --> browserVoice["Browser voice / Realtime transport"]
+  ui --> api["Session API"]
+  browserVoice --> api
+  api --> orchestration["Conversation orchestration"]
+  orchestration --> limits["Authorization, rate, size, and token guards"]
+  orchestration --> sources["Source ingestion, chunks, and digest"]
+  orchestration --> coach["Text coach or deterministic fallback"]
+  sources --> evidence["Exact-evidence validation"]
+  coach --> evidence
+  evidence --> api
+  api --> ui
+  browserVoice -. "optional local-only" .-> recording["Browser recording buffer"]

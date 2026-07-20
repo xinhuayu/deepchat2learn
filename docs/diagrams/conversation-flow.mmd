@@ -1,0 +1,40 @@
+flowchart TB
+    Start["Create or start a new session"] --> Init["Clear visible review and initialize isolated topic, mode, history, and budget"]
+    Init --> Mode{"Learning mode"}
+
+    Mode -->|Practice speaking| Question["Present the active focused question"]
+    Mode -->|Source-centred| Upload["Upload or paste source material"]
+
+    Upload --> Limits["Validate file type, size, pages, and words"]
+    Limits --> Extract["Extract text, chunk content, and retain source locally"]
+    Extract --> Digest["Build evidence-linked digest/gist"]
+    Digest --> Ready["Source ready: model digest or extractive fallback"]
+    Ready --> Question
+
+    Question --> Channel{"Learner channel"}
+    Channel -->|Voice| Speak["AI speaks question; status is highlighted and microphone is paused"]
+    Speak --> Listen["Listen and accumulate only final speech segments"]
+    Listen --> Silence["Wait 5 seconds after final speech"]
+    Silence --> Final["Preserve the final transcript"]
+    Channel -->|Typed| Typed["Learner submits typed answer or question"]
+    Typed --> Final
+
+    Final --> Intent{"Classify learner intent"}
+    Intent -->|End session| Close["Speak/display brief closing message"]
+    Close --> Summary["Persist summary and show newest-first review; offer local-audio download when available"]
+    Intent -->|Move on| Fresh["Choose a relevant unvisited question without consuming an answer round"]
+    Fresh --> Question
+    Intent -->|Direct question or ordinary response| Context{"Session mode"}
+
+    Context -->|Practice| PracticeCtx["Topic + up to 5 compact exchanges; evaluate explanation and choose one brief next step"]
+    Context -->|Source| SourceCtx["Topic + digest/gist + compact exact evidence + latest 3 exchanges; raw paper remains local"]
+    PracticeCtx --> Model["Request structured academic-conversation response"]
+    SourceCtx --> Model
+
+    Model --> Valid{"Provider response valid and timely?"}
+    Valid -->|Yes| Verify["Validate response; check local citation/support for source claims"]
+    Valid -->|No| Fallback["Use bounded local fallback and keep completed transcript retryable"]
+    Fallback --> Verify
+    Verify --> Persist["Persist turn, update agenda/topic/budget, and add review record"]
+    Persist --> Reply["Return concise explanation or coaching plus one focused next question"]
+    Reply --> Question

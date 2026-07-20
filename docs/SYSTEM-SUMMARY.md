@@ -1,0 +1,259 @@
+<p align="center"><img src="../public/brand-logo.png" alt="deepchat2learn logo" width="220"></p>
+
+# deepchat2learn — system summary and milestone record
+
+**Current milestone:** 19 July 2026 — `v0.1.0` feature-freeze baseline, GitHub-ready functional MVP with provider-backed source and voice-path validation.
+
+**Release posture:** `v0.1.0` freezes the verified controlled-demonstration behaviour described here. It is not a public-production 1.0 release. The independent audit evidence, release gate, and allowed maintenance scope are recorded in [RELEASE-BASELINE-v0.1.0.md](RELEASE-BASELINE-v0.1.0.md).
+
+## Deep conversations for better learning
+
+deepchat2learn is built on a simple proposition: learners understand more when they can talk their way through an idea. Explaining a claim, asking what a result means, connecting evidence to a method, and revising an uncertain answer are not side activities around learning; they are the learning activity.
+
+The system therefore treats conversation as the primary interface for academic study. It is not designed to be a document summarizer that happens to have a chat box, nor a speech-recognition demonstration that happens to mention a topic. It is a learning scaffold that helps a learner move through a useful cycle:
+
+```text
+orient → explain → question → connect evidence → refine → apply or reflect
+```
+
+The AI acts as a thoughtful academic interlocutor. It should answer the learner’s immediate question, make one useful connection or suggestion, and invite the next focused contribution. Its job is to make the learner’s thinking more visible and more precise—not to dominate the exchange with a long lecture or a generic list of tips.
+
+## Purpose
+
+deepchat2learn supports two closely related forms of learning:
+
+- **Speaking practice.** A learner practices explaining a concept, study, or argument aloud. The system listens to a completed answer, gives concise and constructive coaching, and asks a response-linked follow-up question.
+- **Source-centred conversation.** A learner uploads or pastes materials—such as a research paper, lecture notes, or report—and discusses them in an evidence-aware dialogue. The system digests the materials once, then helps the learner understand what the source says, why it matters, and what remains uncertain.
+
+In both modes, the intended outcomes are a clearer mental model, stronger academic explanation, more visible misconceptions or gaps, and a better ability to connect findings, methods, limitations, and implications. The system is especially suited to research-methods learning, journal-club preparation, oral presentation practice, and self-study of unfamiliar academic material.
+
+## Philosophy and design strategies
+
+### Conversation before content volume
+
+Depth comes from a well-paced progression, not from sending more text. A useful exchange moves from orientation to design, population, measures, findings, interpretation, limitations, and application as appropriate. Each turn has one job: explain, clarify, connect, test, compare, or advance the discussion.
+
+### Support with productive challenge
+
+The system should be encouraging without becoming vague. It offers a concrete next step, identifies one meaningful gap when appropriate, and asks a question that the learner can answer. It avoids repeating the same prompt, grading every source discussion like an exam, or adding a new agenda when the learner has asked to finish.
+
+### Learner agency and natural turn-taking
+
+A learner can answer, type instead of speak, ask a direct question, move to another issue, interrupt the AI, or end the session. Explicit phrases such as “end the session,” “finish the conversation,” “wrap up,” or “I am done” now trigger a brief closing message and take the learner directly to the summary. They do not create a needless final activity or another question.
+
+### Sources are evidence, not instructions
+
+Uploaded material is treated as reference evidence rather than executable prompt content. Source-grounded claims are tied to locally validated excerpts; general academic knowledge is kept distinct from what the supplied source supports. The AI explains and paraphrases rather than reading passages back to the learner or inventing paper-specific details.
+
+### Continuity is a learning feature
+
+The topic must remain present across turns. Practice conversations carry the topic and up to five compact recent exchanges. Once a source is digested, source conversations carry the topic, the prepared digest/gist, compact exact-evidence options, and the three most recent exchanges. This provides enough continuity to maintain a coherent discussion without repeatedly sending the original document or allowing an unbounded history to overwhelm the current question.
+
+### Reliability should preserve the learning moment
+
+Slow, malformed, or incomplete remote-model responses should not discard a learner’s contribution or leave the interface in a broken state. The system keeps final transcripts retryable, validates structured model responses, and uses a bounded local coach when the remote text call cannot complete. A useful fallback is preferable to a dead conversational turn.
+
+## Function catalogue
+
+### Implemented functions
+
+| Function | Description and current behaviour |
+|---|---|
+| Session creation and mode selection | Creates a separate speaking-practice or source-centred session, initializes an academic topic and opening question, and keeps the new session’s sources, history, summary, budget, and review records isolated from every other session. |
+| New-session reset and deletion | Clears the visible review when a new session begins, stops or discards local recording data as appropriate, and prevents a prior draft or pending voice action from appearing in the next conversation. |
+| Question progression | Maintains an agenda that can move from orientation through design, population, measures, findings, interpretation, limitations, and application. The exact path remains responsive to what the learner has actually said. |
+| Intent routing | Distinguishes a normal explanation, a direct question, a move-on request, an interruption, a retry, and an explicit request to end. Closing language has precedence and leads directly to the summary without another question. |
+| Practice coaching | Evaluates a completed learner explanation for relevance and academic meaning, then returns one brief, concrete next step and one focused response-linked question. It avoids long, generic feedback. |
+| Direct academic answering | Answers a learner’s explanatory question directly before returning to the conversation agenda. The system does not force every learner contribution through a coaching score. |
+| Topic and dialogue continuity | Supplies the session topic on every live prompt. Practice turns retain up to five compact prior exchanges; source turns retain three. The bounded history keeps the topic coherent without turning the prompt into an unbounded transcript. |
+| Typed interaction | Accepts manual answers and questions, preserves drafts until a turn has completed, and remains available whenever speech recognition, Realtime, permissions, or microphone access are unavailable. |
+| Browser voice conversation | Uses browser speech recognition and speech synthesis for a continuous question–listen–answer cycle. Only final recognition segments are submitted; a completed spoken answer waits five seconds of silence before it is sent. |
+| Optional Realtime transport | Supports a configured OpenAI Realtime/WebRTC path for live audio while retaining the server-side turn coordinator, source grounding, budget checks, and text-response validation as the authoritative learning path. |
+| Turn-taking and interruption | Pauses microphone capture during AI speech to reduce echo, offers **Interrupt answer** when the learner needs the floor, rejects stale late responses, and prevents interrupted AI output from contaminating the next source retrieval context. |
+| Voice-status clarity | Highlights the actual state message—AI speaking, listening, transcribing, or evaluating—rather than the nearby AI response caption. The learner can see what the system is doing without losing the spoken content. |
+| Transcript protection and retry | Keeps interim speech out of the final answer box and server request, normalizes final spoken text, accumulates multiple final segments, and keeps a failed completed turn available for retry or typed correction. |
+| Local recording | Offers opt-in browser-local audio recording. It is never sent to the server or stored in session records, and the learner controls download or discard. |
+| Source import and extraction | Accepts PDF, DOCX, TXT, Markdown, and pasted text; applies file, page, word, and byte limits; extracts page-aware text where available; and retains useful table/caption artifacts when the extractor can identify them. |
+| Source digestion | Chunks the local material and produces an evidence-linked paper-level digest/gist. Source digestion has its own 180-second deadline and 12,000-token structured-completion allowance; an extractive digest remains available if the remote synthesis fails. |
+| Source-aware live discussion | After preparation, sends the topic, digest/gist, compact exact-evidence options, and latest three exchanges to the provider. It does not resend the raw paper or complete chunks during ordinary conversation. |
+| Citation and support checking | Validates source citations against locally retained original excerpts, while tolerating harmless PDF-extraction differences such as whitespace, quotation marks, dashes, and soft hyphens. General knowledge and unsupported claims are kept distinct from source support. |
+| Model resilience and fallbacks | Validates structured provider output, applies task-specific deadlines, and falls back to the local coach at the gateway deadline so a slow or malformed model result does not erase the learner’s turn. |
+| Budgets and operational guardrails | Enforces character, request-size, source-size, round, and model-token limits with operational headroom: 13,200-character answers/transcripts, 2,200-character questions, 28 MB requests, and a 132,000-token session budget by default. |
+| Records, review, and session summary | Persists completed turns and timestamps where configured, displays review entries newest first, and presents an end-of-session summary of the learner’s conversation rather than extending a closed session. |
+| Privacy, configuration, and health | Keeps credentials server-only in a private ignored `.env`; supports optional SQLite persistence; advertises safe capability/health data; and distributes a sanitized `.env.example` without local paths or real secrets. |
+| Regression verification | Protects the learning contract with syntax, API, browser-harness, voice-state, source-evidence, model-boundary, persistence, and fallback tests. The current suite contains 445 passing tests and 3 optional environment-specific skips. |
+
+### Future design functions
+
+The following are intentional design directions, not claims about the current MVP. They extend the learning philosophy while preserving the present privacy and source-grounding boundaries.
+
+| Planned function | Intended learner value and design boundary |
+|---|---|
+| Adaptive learning plan | Build a lightweight model of a learner’s goals, recurring strengths, misconceptions, and preferred challenge level so that a later session can select a more useful starting question. It should remain transparent and editable by the learner. |
+| Concept maps and reflective summaries | Generate end-of-session concept maps, evidence-to-claim links, unresolved questions, and self-reflection prompts that help the learner consolidate a discussion rather than merely retain a chat transcript. |
+| Spaced follow-up practice | Turn unresolved questions and fragile explanations into optional future prompts. Scheduling should support practice, not create hidden surveillance or pressure. |
+| Instructor-defined objectives and rubrics | Let an instructor specify learning goals, paper-specific questions, or an assessment rubric while keeping live discussion conversational and avoiding a rigid automated-grading experience. |
+| Richer source understanding | Add optional OCR for scanned documents and careful figure/table interpretation. Any visual extraction or model inference must carry an uncertainty label and never be represented as a verified textual citation without support. |
+| Clearer evidence interface | Surface citations, page references, support status, digest coverage, and the distinction between source evidence and general academic explanation directly in the conversation interface. |
+| Multi-source comparison | Support explicit comparison, contradiction tracking, and forced digest consolidation across several materials. This should remain an intentional preparation action rather than automatically resending every document on each turn. |
+| Streaming and perceived-latency improvements | Investigate safe streaming text or early sentence playback so the learner receives a responsive first signal while preserving turn validation, interruption safety, and source checking. |
+| Provider resilience and observability | Add retry/backoff policy, correlation IDs, safe latency/error metrics, and deployer-facing recovery guidance without recording raw prompts, transcripts, source text, or credentials in logs. |
+| Production identity and retention controls | Add authentication, role-aware authorization, user quotas, encryption where needed, configurable retention/deletion, and multi-user isolation before public or sensitive-data deployment. |
+| Accessibility and device quality assurance | Complete cross-browser and mobile testing for permission flows, autoplay, captions, keyboard use, screen readers, interruptions, and slow or variable networks. |
+| Learning-effect evaluation | Evaluate whether the conversation actually improves explanation quality, source comprehension, retention, and transfer—not only uptime, latency, or provider success rates. |
+
+## Important processes
+
+### 1. A normal learning turn
+
+```text
+learner speaks or types
+  → final answer is preserved
+  → system classifies the turn
+  → answer is evaluated or answered directly
+  → concise guidance or explanation is returned
+  → one relevant next question is offered
+```
+
+The turn classifier gives closing and move-on requests precedence over ordinary answers. During AI speech, microphone capture is paused to reduce echo; **Interrupt answer** lets the learner take the floor again. Interim recognition text is not treated as a final answer. If a request fails, the completed transcript remains available for retry or typed editing.
+
+### Detailed conversation flow
+
+```mermaid
+flowchart TB
+    Start["Create or start a new session"] --> Init["Clear visible review and initialize isolated topic, mode, history, and budget"]
+    Init --> Mode{"Learning mode"}
+
+    Mode -->|Practice speaking| Question["Present the active focused question"]
+    Mode -->|Source-centred| Upload["Upload or paste source material"]
+
+    Upload --> Limits["Validate file type, size, pages, and words"]
+    Limits --> Extract["Extract text, chunk content, and retain source locally"]
+    Extract --> Digest["Build evidence-linked digest/gist"]
+    Digest --> Ready["Source ready: model digest or extractive fallback"]
+    Ready --> Question
+
+    Question --> Channel{"Learner channel"}
+    Channel -->|Voice| Speak["AI speaks question; status is highlighted and microphone is paused"]
+    Speak --> Listen["Listen and accumulate only final speech segments"]
+    Listen --> Silence["Wait 5 seconds after final speech"]
+    Silence --> Final["Preserve the final transcript"]
+    Channel -->|Typed| Typed["Learner submits typed answer or question"]
+    Typed --> Final
+
+    Final --> Intent{"Classify learner intent"}
+    Intent -->|End session| Close["Speak/display brief closing message"]
+    Close --> Summary["Persist summary and show newest-first review; offer local-audio download when available"]
+    Intent -->|Move on| Fresh["Choose a relevant unvisited question without consuming an answer round"]
+    Fresh --> Question
+    Intent -->|Direct question or ordinary response| Context{"Session mode"}
+
+    Context -->|Practice| PracticeCtx["Topic + up to 5 compact exchanges; evaluate explanation and choose one brief next step"]
+    Context -->|Source| SourceCtx["Topic + digest/gist + compact exact evidence + latest 3 exchanges; raw paper remains local"]
+    PracticeCtx --> Model["Request structured academic-conversation response"]
+    SourceCtx --> Model
+
+    Model --> Valid{"Provider response valid and timely?"}
+    Valid -->|Yes| Verify["Validate response; check local citation/support for source claims"]
+    Valid -->|No| Fallback["Use bounded local fallback and keep completed transcript retryable"]
+    Fallback --> Verify
+    Verify --> Persist["Persist turn, update agenda/topic/budget, and add review record"]
+    Persist --> Reply["Return concise explanation or coaching plus one focused next question"]
+    Reply --> Question
+```
+
+The same editable flow is maintained in [conversation-flow.mmd](diagrams/conversation-flow.mmd). The diagram makes two boundaries explicit: the learner’s completed contribution is protected before any model call, and raw source text remains local after source preparation while the live conversation uses bounded prepared context.
+
+### 2. Speaking-practice continuity
+
+Practice mode asks the learner to articulate an idea and then assesses the response for relevance and academic meaning. It sends the current topic plus no more than five compact recent question-answer exchanges to the text model. The purpose of this context is not to create a transcript archive; it is to prevent the discussion from losing its subject after several rounds.
+
+### 3. Source ingestion and digestion
+
+```text
+upload or paste material
+  → validate size, pages, and text
+  → extract and chunk content
+  → create a source digest with evidence links
+  → retain exact excerpts locally for validation
+  → mark the source ready for conversation
+```
+
+The complete source is used during this preparation step. A 180-second digestion deadline and a configurable 12,000-token structured-completion allowance accommodate substantial academic papers, including the project target of roughly 8,000–10,000 words. If the remote digest cannot be created, the package retains an extractive digest so the learner is not left with an unusable upload.
+
+### 4. Conversation after a source is ready
+
+```text
+learner question or explanation
+  → topic + source digest/gist + compact evidence + latest 3 exchanges
+  → source-aware model response
+  → local citation/support validation
+  → concise explanation and related next question
+```
+
+After digestion, the raw paper and complete chunks are not sent again for ordinary source conversation. The server retains them locally for evidence validation and safe fallbacks. An explicit forced consolidation path remains available for maintenance or multi-source rebuilds, but ordinary digest refreshes reuse the completed gist. This boundary improves privacy, lowers repeated context cost, and keeps the live conversation focused.
+
+### 5. Remote-model resilience
+
+The remote text pathway has task-specific guards. Interactive text coaching defaults to a 45-second deadline; source digestion has a 180-second deadline and a 12,000-token completion allowance; source discussion allows up to 3,300 output tokens; and Realtime setup defaults to 60 seconds. Gateway-level timeout handling returns the local coach instead of exposing a transient server failure as a broken turn. The five-second voice transcription/silence boundary is intentionally unchanged.
+
+The configuration also leaves practical headroom for real speech and source conversations: 13,200-character transcript and answer limits, a 2,200-character question limit, a 132,000-token session budget, a 28 MB JSON request body, and source limits of ten files, 20 MB each, 50 MB total, 300 pages, and 150,000 extracted words. These are operational bounds, not learning targets.
+
+## Architecture and boundaries
+
+The browser is responsible for the interaction: accessible controls, voice state, local recording, transcript display, and the learner-facing review. The Node server is responsible for session authorization, mode and budget guards, source ingestion, model calls, evidence checking, durable-state options, and health reporting. Provider credentials remain server-side in a private ignored `.env`.
+
+The live dialogue skill is deliberately separate from deeper source preparation. `academic-conversation` drives practice and source turns. The heavier research-oriented processing builds the source digest so that the live exchange can remain responsive, concise, and pedagogically focused.
+
+Editable diagrams are maintained alongside this document: [architecture.mmd](diagrams/architecture.mmd) and [conversation-flow.mmd](diagrams/conversation-flow.mmd). The implementation baseline, configuration contracts, validation evidence, and engineering handoff are recorded separately in the [technical inventory and milestone record](TECHNICAL-INVENTORY.md).
+
+## Audit and stabilization milestone — July 2026
+
+This milestone followed an independent audit of functions, feature consistency, logic flow, voice conversations, answer/question records, and the remote LLM integration. It focused on the places where a technically functioning application can still produce an unsatisfying learning conversation: lost topic continuity, confusing voice feedback, stale history, premature provider failures, and source answers that are poorly grounded or too expensive to construct.
+
+| Audit finding | Resolution in the current package |
+|---|---|
+| A spoken request to end could continue into another activity. | Closing language now ends the session, returns a concise closure, and routes to the summary without a further question. |
+| Coaching suggestions could become long or drift away from the learner’s point. | Live coaching is limited to one brief, concrete next step before the focused follow-up question. |
+| The wrong visual element was highlighted during voice work. | The actual voice-processing/status message is highlighted; the AI response caption is not. |
+| Review content could carry across sessions or appear in an unhelpful order. | A successful new session clears the visible review; persisted entries are timestamped and rendered most recent first. |
+| Multi-round discussion could lose its topic. | Every prompt carries the topic; practice retains five compact exchanges and source discussion retains three, along with the source digest/gist. |
+| Source discussion repeatedly exposed raw material to the provider after digesting. | Ordinary live source turns now send only the prepared digest/gist, compact evidence options, and bounded recent dialogue; raw material stays local. |
+| Provider errors such as `MODEL_OUTPUT_INVALID`, `MODEL_REQUEST_FAILED`, and incomplete source digests interrupted the learning flow. | Structured response handling, task-specific deadlines, gateway fallback, larger source output allowance, and safe source fallbacks improve recovery without losing the learner’s turn. |
+| A larger research paper stopped with `incompleteReason=max_output_tokens`. | Source digestion now has a configurable 12,000-token structured-completion allowance and a separate 180-second deadline. |
+| Literal comparison of PDF-extracted evidence could reject otherwise valid citations. | Citation matching normalizes harmless case, whitespace, quote, dash, and soft-hyphen differences while retaining the original excerpt for display and validation. |
+
+The audit also checked sizing, token budgets, timing, character limits, source-context composition, session isolation, fallback behavior, and cleanup of the GitHub-ready baseline. The clean package retains `.env.example` as a sanitized setup template while excluding actual `.env` files, secrets, dependencies, caches, logs, recordings, source uploads, stale test outputs, and chat-history artifacts.
+
+## Provider-backed validation record
+
+With explicit authorization to use a published research paper, the current private test configuration was exercised against the remote provider. The tested paper was eight pages and approximately 6,655 words.
+
+- Direct remote source digestion succeeded in about **35 seconds**, producing a ready source model.
+- A normal digest refresh reused the prepared gist in about **6 ms** and did **not** resend raw source text.
+- A model-backed voice-source turn using a finalized transcript, followed by three source discussion turns, completed successfully in roughly **14–22 seconds per turn**.
+- The validated session used approximately **42,000 of 132,000** model-budget tokens.
+- The five-second silence setting remained in force. This validation exercised the server’s voice-answer path with a finalized transcript; physical microphone and device permission behaviour still require browser/device smoke testing.
+
+The deterministic verification suite also passed: **445 tests passed, 0 failed, and 3 optional environment-specific tests were skipped**. The suite covers syntax, conversation state, voice timing, processing-state presentation, ending behavior, records, source evidence, prompt boundaries, and gateway fallback. Repository scans confirmed that the GitHub baseline is free of secrets and stale runtime artifacts.
+
+## Current stage
+
+The project is at a **functional MVP / controlled demonstration** stage. The `v0.1.0` feature-freeze baseline is suitable for local use, controlled academic demonstrations, and GitHub submission. It has a coherent learning philosophy, a stable session model, bounded context and budgets, a tested remote source pathway, and a clean submission baseline. Its independent release evidence is maintained in [RELEASE-BASELINE-v0.1.0.md](RELEASE-BASELINE-v0.1.0.md).
+
+It is not yet a public multi-user learning platform. Production use with sensitive or high-volume data still requires authentication, durable authorization boundaries, deployment monitoring, retention and deletion controls, privacy review, and device/browser testing appropriate to the intended users.
+
+## Next milestones
+
+1. **Observe real learning conversations.** Test the quality of prompts, coaching brevity, topic continuity, and summaries with representative students or researchers; use those observations to refine the teaching strategy rather than only the model prompts.
+2. **Complete browser and device voice QA.** Run end-to-end microphone, permission, interruption, autoplay, slow-network, and Realtime checks across target desktop and mobile browsers.
+3. **Strengthen source transparency.** Make support status, citations, page references, and source-versus-general-knowledge distinctions clearer in the learner interface.
+4. **Extend source understanding carefully.** Add optional OCR and figure/table interpretation with explicit uncertainty labels; retain the current text-first evidence boundary rather than silently claiming visual comprehension.
+5. **Prepare for responsible deployment.** Add authentication, user-level quotas, encrypted durable storage where needed, operational metrics, and configurable retention before accepting sensitive or multi-user workloads.
+6. **Measure learning, not just uptime.** Explore end-of-session concept maps, misconception summaries, spaced follow-up questions, instructor-defined objectives, and evaluation methods that show whether deep conversation improves understanding.
+
+## Handoff principle
+
+Future changes should protect the foundation before adding complexity: meaningful turn-taking, learner agency, concise guidance, topic continuity, source grounding, visible recovery, session isolation, and privacy boundaries. Every change to the conversation should be judged by one question:
+
+> Does it help the learner think, explain, question, and revise more deeply?
