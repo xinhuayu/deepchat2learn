@@ -1,4 +1,0 @@
-interface:
-  display_name: "Academic Conversation"
-  short_description: "Source-grounded Socratic research dialogue."
-  default_prompt: "Discuss the supplied research topic, explain unfamiliar ideas, label source evidence and general knowledge, and ask useful follow-up questions."
